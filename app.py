@@ -9,9 +9,9 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 # --- USER AUTHENTICATION ---
 # Users and Passwords defined in Secrets or local fallback
 USERS = st.secrets.get("users", {
-    "admin": "admin123",
-    "staff1": "ellie2026",
-    "staff2": "ellie2026"
+    "admin": "admin",
+    "staff1": "ellie1",
+    "staff2": "ellie2"
 })
 
 if "authenticated" not in st.session_state:
