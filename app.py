@@ -11,7 +11,8 @@ st.caption("Cloud-Connected Google Sheets Dashboard")
 # Connect to Google Sheets
 @st.cache_resource
 def get_gsheet():
-    gc = gspread.service_account(filename="credentials.json")
+    credentials = dict(st.secrets["gcp_service_account"])
+    gc = gspread.service_account_from_dict(credentials)
     return gc.open("Inventory DB").sheet1
 
 sheet = get_gsheet()
