@@ -148,11 +148,17 @@ else:
     st.info("No items found in your inventory sheet.")
 
 # --- SECTION 3: AUDIT LOG VIEWER ---
-st.divider()
-with st.expander("📜 View Audit Log (Worker Actions)", expanded=False):
-    logs = log_sheet.get_all_records()
-    if logs:
-        log_df = pd.DataFrame(logs)
-        st.dataframe(log_df.sort_values(by="Timestamp", ascending=False), use_container_width=True, hide_index=True)
-    else:
-        st.info("No activity recorded yet.")
+if st.session_state["username"] == "admin":
+    st.divider()
+    with st.expander("📜 View Audit Log (Admin Only)", expanded=False):
+        logs = log_sheet.get_all_records()
+        if logs:
+            log_df = pd.DataFrame(logs)
+            # Display logs with newest actions at the top
+            st.dataframe(
+                log_df.sort_values(by="Timestamp", ascending=False), 
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("No activity recorded yet.")
