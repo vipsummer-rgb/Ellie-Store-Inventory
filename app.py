@@ -214,7 +214,7 @@ with col_remove:
                 st.session_state["remove_reason_input"] = ""
                 st.session_state["clear_remove_flag"] = False
 
-            item_options = df.apply(lambda r: f"{r['sku']} - {r['name']} (Current: {r['quantity']})", axis=1).tolist()
+            item_options = df.apply(lambda r: f"{r['name']} - {r['sku']} (Current: {r['quantity']})", axis=1).tolist()
             selected_item_str = st.selectbox(
                 "Select Item to Deduct", 
                 options=item_options, 
