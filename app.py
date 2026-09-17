@@ -100,7 +100,7 @@ with tab_pos:
         st.markdown("##### Add Item to Cart")
         
         # 1. Order Name
-        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Table 3, Walk-in, Jemo", key="pos_order_name").strip()
+        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Name", key="pos_order_name").strip()
         
         # Build dropdown options (Product name + Stock level only)
         in_stock_df = df[df["quantity"] > 0] if not df.empty else pd.DataFrame()
@@ -170,7 +170,7 @@ with tab_pos:
             # Table Header
             c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
             c_name.caption("**Name**")
-            c_qty.caption("**Qty (Typeable)**")
+            c_qty.caption("**Qty**")
             c_price.caption("**Unit Price**")
             c_subtotal.caption("**Subtotal**")
             st.divider()
