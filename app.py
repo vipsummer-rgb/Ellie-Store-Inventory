@@ -60,6 +60,54 @@ def get_quantity_col_idx(headers):
             return idx
     return 4  # Default fallback column (D)
 
+def get_transaction_history():
+    """Parses 'ORDER COMPLETED' logs into a clean DataFrame."""
+    logs = log_sheet.get_all_records()
+    if not logs:
+        return pd.DataFrame()
+
+    df_logs = pd.DataFrame(logs)
+    orders = df_logs[df_logs["Action"] == "ORDER COMPLETED"].copy()
+
+    if orders.empty:
+        return pd.DataFrame()
+
+    parsed_orders = []
+    for _, row in orders.iterrows():
+        details = str(row["Details"])
+        
+        order_name = "N/A"
+        if "Order Name: " in details:
+            try:
+                order_name = details.split("Order Name: ")[1].split(" | ")[0].strip()
+            except Exception:
+                pass
+
+        items = "N/A"
+        if "Items: [" in details:
+            try:
+                items = details.split("Items: [")[1].split("] |")[0].strip()
+            except Exception:
+                pass
+
+        total = "0.00"
+        if "Total: ₱" in details:
+            try:
+                total = details.split("Total: ₱")[1].strip()
+            except Exception:
+                pass
+
+        parsed_orders.append({
+            "Timestamp": row["Timestamp"],
+            "User / Staff": row["User"],
+            "Order Name": order_name,
+            "Items": items,
+            "Total (₱)": total
+        })
+
+    df_transactions = pd.DataFrame(parsed_orders)
+    return df_transactions.sort_values(by="Timestamp", ascending=False)
+
 df = load_data()
 
 # ==========================================
@@ -107,7 +155,11 @@ if st.sidebar.button("Log Out"):
 st.title("📦 Ellie Store Inventory")
 st.caption(f"Logged in as **{st.session_state['username']}** | Tab Connected: **{sheet.title}**")
 
-tab_pos, tab_inventory = st.tabs(["🛒 Orders / POS", "📦 Inventory Management"])
+tab_pos, tab_inventory, tab_history = st.tabs([
+    "🛒 Orders / POS", 
+    "📦 Inventory Management", 
+    "📜 Transaction History"
+])
 
 # ==========================================
 # 6. TAB 1: ORDERS / POS
@@ -401,3 +453,51 @@ with tab_inventory:
             logs = log_sheet.get_all_records()
             if logs:
                 st.dataframe(pd.DataFrame(logs).sort_values(by="Timestamp", ascending=False), use_container_width=True, hide_index=True)
+
+# ==========================================
+# 8. TAB 3: TRANSACTION HISTORY
+# ==========================================
+with tab_history:
+    st.subheader("📜 Sales & Transaction History")
+    
+    df_tx = get_transaction_history()
+    
+    if not df_tx.empty:
+        # Top KPI Summary Cards
+        col_kpi1, col_kpi2 = st.columns(2)
+        
+        # Calculate total revenue dynamically
+        clean_totals = df_tx["Total (₱)"].str.replace(",", "").astype(float)
+        total_revenue = clean_totals.sum()
+        
+        col_kpi1.metric("Total Completed Orders", len(df_tx))
+        col_kpi2.metric("Total Revenue", f"₱{total_revenue:,.2f}")
+        
+        st.divider()
+
+        # Search / Filter Bar
+        search_query = st.text_input("🔍 Search Transactions", placeholder="Filter by customer name, staff, or date...").strip().upper()
+        
+        if search_query:
+            df_tx = df_tx[
+                df_tx["Order Name"].astype(str).str.contains(search_query, case=False) |
+                df_tx["User / Staff"].astype(str).str.contains(search_query, case=False) |
+                df_tx["Items"].astype(str).str.contains(search_query, case=False) |
+                df_tx["Timestamp"].astype(str).str.contains(search_query, case=False)
+            ]
+
+        # Render Transaction Table
+        st.dataframe(
+            df_tx, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Timestamp": st.column_config.TextColumn("Date & Time"),
+                "User / Staff": st.column_config.TextColumn("Cashier"),
+                "Order Name": st.column_config.TextColumn("Customer / Order Ref"),
+                "Items": st.column_config.TextColumn("Items Purchased"),
+                "Total (₱)": st.column_config.TextColumn("Total Amount")
+            }
+        )
+    else:
+        st.info("No completed transactions recorded yet.")
