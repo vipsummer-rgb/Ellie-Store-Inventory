@@ -102,17 +102,17 @@ with tab_pos:
         # 1. Order Name
         order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Table 3, Walk-in, Jemo", key="pos_order_name").strip()
         
-        # Build dropdown options
+        # Build dropdown options (Product name + Stock level only)
         in_stock_df = df[df["quantity"] > 0] if not df.empty else pd.DataFrame()
         
         if not in_stock_df.empty:
             item_options = in_stock_df.apply(
-                lambda r: f"{r['name']} | Stock: {r['quantity']} | ₱{float(r['price']):.2f}", axis=1
+                lambda r: f"{r['name']} | Stock: {r['quantity']}", axis=1
             ).tolist()
         else:
             item_options = []
 
-        # 2. Product Dropdown (Always visible)
+        # 2. Product Dropdown
         selected_item_str = st.selectbox(
             "Product", 
             options=item_options, 
