@@ -68,7 +68,6 @@ def load_data():
         return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price"])
     
     df_loaded = pd.DataFrame(records)
-    # Ensure all string columns are explicitly stored as strings
     for col in ["sku", "name"]:
         if col in df_loaded.columns:
             df_loaded[col] = df_loaded[col].astype(str)
@@ -282,7 +281,6 @@ with tab_inventory:
 
             is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
             
-            # Extract names & SKUs securely
             if not df.empty and "name" in df.columns:
                 existing_names = sorted(list(set([
                     str(name).strip() 
@@ -347,44 +345,50 @@ with tab_inventory:
 
             if st.button("Save Stock", key="btn_save_new"):
                 if add_name and add_name.strip() != "":
-                    sku_val = add_sku.strip() if add_sku.strip() else "N/A"
-                    target_name = add_name.strip().lower()
-                    target_sku = sku_val.upper()
+                    try:
+                        sku_val = add_sku.strip() if add_sku.strip() else "N/A"
+                        target_name = add_name.strip().lower()
+                        target_sku = sku_val.upper()
 
-                    # Find matching item safely regardless of pandas datatype
-                    name_match = df[df["name"].astype(str).str.strip().str.lower() == target_name]
-                    sku_match = df[(df["sku"].astype(str).str.strip().str.upper() == target_sku) & (target_sku != "N/A")]
-                    
-                    existing_match = name_match if not name_match.empty else sku_match
-                    
-                    if not existing_match.empty:
-                        row_idx = existing_match.index[0]
-                        current_qty = int(df.iloc[row_idx]["quantity"])
-                        new_qty = current_qty + add_quantity
+                        name_match = df[df["name"].astype(str).str.strip().str.lower() == target_name] if not df.empty else pd.DataFrame()
+                        sku_match = df[(df["sku"].astype(str).str.strip().str.upper() == target_sku) & (target_sku != "N/A")] if not df.empty else pd.DataFrame()
                         
-                        row_number = row_idx + 2
-                        qty_col_idx = df.columns.get_loc("quantity") + 1
-                        sheet.update_cell(row_number, qty_col_idx, new_qty)
+                        existing_match = name_match if not name_match.empty else sku_match
+                        
+                        if not existing_match.empty:
+                            row_idx = existing_match.index[0]
+                            current_qty = int(df.iloc[row_idx]["quantity"])
+                            new_qty = current_qty + add_quantity
+                            
+                            row_number = row_idx + 2
+                            qty_col_idx = df.columns.get_loc("quantity") + 1
+                            sheet.update_cell(row_number, qty_col_idx, new_qty)
 
-                        log_action(
-                            st.session_state["username"], 
-                            "ADD STOCK", 
-                            f"Added {add_quantity} to existing '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})"
-                        )
-                        st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
-                    else:
-                        new_id = len(df) + 1
-                        sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
+                            log_action(
+                                st.session_state["username"], 
+                                "ADD STOCK", 
+                                f"Added {add_quantity} to existing '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})"
+                            )
+                            st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
+                        else:
+                            # Explicitly write new row to exact row index to avoid append_row positioning errors
+                            next_row = len(df) + 2
+                            new_id = len(df) + 1
+                            new_row_data = [[new_id, sku_val, add_name, add_quantity, add_price]]
+                            
+                            sheet.update(f"A{next_row}:E{next_row}", new_row_data)
+                            
+                            log_action(
+                                st.session_state["username"], 
+                                "ADD ITEM", 
+                                f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
+                            )
+                            st.success(f"Added new item '{add_name}' successfully!")
                         
-                        log_action(
-                            st.session_state["username"], 
-                            "ADD ITEM", 
-                            f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
-                        )
-                        st.success(f"Added new item '{add_name}' successfully!")
-                    
-                    reset_add_inputs()
-                    st.rerun()
+                        reset_add_inputs()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving stock: {e}")
                 else:
                     st.error("Please select or enter an Item Name before saving.")
 
