@@ -124,14 +124,14 @@ with tab_pos:
     if "cart" not in st.session_state:
         st.session_state["cart"] = []
 
-    # Flag to trigger input field reset after adding to cart
+    # Flag to trigger input field reset after adding to cart or completing order
     if "clear_pos_flag" not in st.session_state:
         st.session_state["clear_pos_flag"] = False
 
     if st.session_state["clear_pos_flag"]:
-        st.session_state["pos_order_name"] = ""
+        st.session_state["pos_order_name"] = ""  # <-- Reset order name HERE before text_input renders
         st.session_state["pos_item_select"] = None
-        st.session_state["pos_qty_input"] = 0  # Set to 0 as requested
+        st.session_state["pos_qty_input"] = 0
         st.session_state["clear_pos_flag"] = False
 
     col_catalog, col_cart = st.columns([1, 1.3])
@@ -256,12 +256,12 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    # Use local order_name variable directly from the UI input field
-                    order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
+                    # Grab current order name safely
+                    order_name_val = st.session_state.get("pos_order_name", "").strip()
+                    order_ref = f"Order Name: {order_name_val.upper()} | " if order_name_val else ""
                     
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
-                    # Log action with the order reference
                     log_action(
                         st.session_state["username"], 
                         "ORDER COMPLETED", 
@@ -270,7 +270,8 @@ with tab_pos:
                     
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
-                    st.session_state["pos_order_name"] = ""  # <-- Clear order name here after checkout
+                    
+                    # Trigger the reset flag and rerun
                     st.session_state["clear_pos_flag"] = True
                     st.rerun()
         else:
