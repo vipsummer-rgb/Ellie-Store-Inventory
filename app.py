@@ -104,36 +104,56 @@ def reset_remove_inputs():
 # --- ADD STOCK SECTION ---
 with col_add:
     with st.expander("➕ Add Stock Item", expanded=False):
-        # Clear values if flag is raised
         if st.session_state["clear_add_flag"]:
             st.session_state["add_name_input"] = ""
             st.session_state["add_sku_input"] = ""
             st.session_state["add_name_select"] = None
+            st.session_state["add_sku_select"] = None
             st.session_state["add_qty_input"] = 1
             st.session_state["add_price_input"] = 0.0
             st.session_state["chk_is_new"] = False
-            st.session_state["clear_add_flag"] = False  # Reset flag
+            st.session_state["clear_add_flag"] = False
 
         is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
-        existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
         
+        # Get unique existing names and valid SKUs
+        existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
+        existing_skus = sorted([str(s) for s in df["sku"].dropna().unique() if str(s).upper() != "N/A"]) if not df.empty else []
+
         if is_new_item or not existing_names:
             add_name = st.text_input("Item Name", key="add_name_input").strip()
-            add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
+            add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip().upper()
             add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
         else:
+            # Dropdown for existing items
             add_name = st.selectbox(
-                "Search & Select Item", 
+                "Search & Select Item Name", 
                 options=existing_names, 
                 index=None, 
-                placeholder="Type or select an item...",
+                placeholder="Type or select item name...",
                 key="add_name_select"
             )
+            
+            # Dropdown suggestion for existing SKUs
+            selected_sku_type = st.selectbox(
+                "Search & Select Existing SKU (Optional)",
+                options=existing_skus,
+                index=None,
+                placeholder="Type or select existing SKU...",
+                key="add_sku_select"
+            )
+
             if add_name:
                 selected_row = df[df["name"] == add_name].iloc[0]
-                add_sku = selected_row["sku"]
+                add_sku = selected_sku_type if selected_sku_type else str(selected_row["sku"]).upper()
                 add_price = float(selected_row["price"])
-                st.caption(f"Current Price: ₱{add_price:.2f} | Current SKU: {add_sku}")
+                st.caption(f"Current Price: ₱{add_price:.2f} | SKU: {add_sku}")
+            elif selected_sku_type:
+                selected_row = df[df["sku"].astype(str).str.upper() == selected_sku_type.upper()].iloc[0]
+                add_name = selected_row["name"]
+                add_sku = selected_sku_type.upper()
+                add_price = float(selected_row["price"])
+                st.caption(f"Selected Item: {add_name} | Price: ₱{add_price:.2f}")
             else:
                 add_sku = ""
                 add_price = 0.0
@@ -143,9 +163,15 @@ with col_add:
         if st.button("Save Stock", key="btn_save_new"):
             if add_name:
                 sku_val = add_sku if add_sku else "N/A"
-                existing_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
+                
+                # Check for match by Name OR by SKU (case-insensitive)
+                name_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
+                sku_match = df[(df["sku"].astype(str).str.upper() == sku_val.upper()) & (sku_val.upper() != "N/A")]
+                
+                existing_match = name_match if not name_match.empty else sku_match
                 
                 if not existing_match.empty:
+                    # MATCH FOUND: Merge and update existing row
                     row_idx = existing_match.index[0]
                     current_qty = int(df.iloc[row_idx]["quantity"])
                     new_qty = current_qty + add_quantity
@@ -157,10 +183,11 @@ with col_add:
                     log_action(
                         st.session_state["username"], 
                         "ADD STOCK", 
-                        f"Added {add_quantity} to existing '{add_name}' (New Total: {new_qty})"
+                        f"Added {add_quantity} to existing '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})"
                     )
                     st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
                 else:
+                    # NEW ITEM: Save SKU in clean UPPERCASE
                     new_id = len(df) + 1
                     sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
                     
