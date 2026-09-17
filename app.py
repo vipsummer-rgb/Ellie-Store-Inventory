@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 import pandas as pd
 from datetime import datetime
+import requests
 
 # Page Configuration
 st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout="wide")
@@ -23,6 +24,23 @@ def get_gsheet():
     return sh.sheet1, log_sheet
 
 sheet, log_sheet = get_gsheet()
+
+# --- HELPER: UPLOAD IMAGE TO FREE HOSTING (IMGUR) ---
+def upload_image_to_cloud(image_file):
+    """Uploads an image file object to Imgur and returns the direct image URL."""
+    try:
+        headers = {"Authorization": "Client-ID 1c8091f8ed1a1ee"}  # Public client ID for quick upload
+        payload = {"image": image_file.getvalue()}
+        response = requests.post("https://api.imgur.com/3/upload", headers=headers, data=payload)
+        res_data = response.json()
+        if res_data.get("success"):
+            return res_data["data"]["link"]
+        else:
+            st.error(f"Image upload failed: {res_data.get('data', {}).get('error', 'Unknown error')}")
+            return ""
+    except Exception as e:
+        st.error(f"Error uploading image: {e}")
+        return ""
 
 # --- AUDIT LOG FUNCTION ---
 def log_action(user: str, action: str, details: str):
@@ -65,8 +83,13 @@ if not st.session_state["authenticated"]:
 def load_data():
     records = sheet.get_all_records()
     if not records:
-        return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price"])
-    return pd.DataFrame(records)
+        return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price", "photo_url"])
+    
+    df_loaded = pd.DataFrame(records)
+    # Ensure photo_url column exists in dataframe
+    if "photo_url" not in df_loaded.columns:
+        df_loaded["photo_url"] = ""
+    return df_loaded
 
 df = load_data()
 
@@ -122,13 +145,19 @@ with tab_pos:
             key="pos_item_select"
         )
 
-        # 3. Quantity Input (Always visible)
+        # 3. Product Photo Preview
         max_available = 9999
+        item_data = None
         if selected_item_str and not in_stock_df.empty:
             selected_idx = item_options.index(selected_item_str)
             item_data = in_stock_df.iloc[selected_idx]
             max_available = int(item_data["quantity"])
+            
+            photo = str(item_data.get("photo_url", "")).strip()
+            if photo:
+                st.image(photo, width=120)
 
+        # 4. Quantity Input (Always visible)
         order_qty = st.number_input(
             "Qty", 
             min_value=1, 
@@ -139,9 +168,9 @@ with tab_pos:
             key="pos_qty_input"
         )
         
-        # 4. Add to Cart Button (Always visible)
+        # 5. Add to Cart Button (Always visible)
         if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not selected_item_str):
-            if selected_item_str:
+            if selected_item_str and item_data is not None:
                 existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
                 
                 if existing_cart_item:
@@ -328,10 +357,17 @@ with tab_inventory:
                     add_price = 0.0
 
             add_quantity = st.number_input("Quantity to Add", min_value=1, step=1, key="add_qty_input")
-            
+
+            # Product Photo Capture / Upload
+            st.markdown("**Product Photo (Optional)**")
+            cam_photo = st.camera_input("Take Photo via Camera", key="add_cam_photo")
+            uploaded_photo = st.file_uploader("Or Upload Image", type=["jpg", "jpeg", "png"], key="add_file_photo")
+            photo_file = cam_photo if cam_photo else uploaded_photo
+
             if st.button("Save Stock", key="btn_save_new"):
                 if add_name:
                     sku_val = add_sku if add_sku else "N/A"
+                    photo_url = upload_image_to_cloud(photo_file) if photo_file else ""
                     
                     name_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
                     sku_match = df[(df["sku"].astype(str).str.upper() == sku_val.upper()) & (sku_val.upper() != "N/A")]
@@ -347,6 +383,11 @@ with tab_inventory:
                         qty_col_idx = df.columns.get_loc("quantity") + 1
                         sheet.update_cell(row_number, qty_col_idx, new_qty)
                         
+                        # Update photo URL if a new photo was uploaded
+                        if photo_url and "photo_url" in df.columns:
+                            photo_col_idx = df.columns.get_loc("photo_url") + 1
+                            sheet.update_cell(row_number, photo_col_idx, photo_url)
+
                         log_action(
                             st.session_state["username"], 
                             "ADD STOCK", 
@@ -355,7 +396,7 @@ with tab_inventory:
                         st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
                     else:
                         new_id = len(df) + 1
-                        sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
+                        sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price, photo_url])
                         
                         log_action(
                             st.session_state["username"], 
@@ -437,6 +478,7 @@ with tab_inventory:
                 hide_index=True,
                 disabled=["id", "sku"],
                 column_config={
+                    "photo_url": st.column_config.ImageColumn("Image", help="Product image thumbnail", width="small"),
                     "price": st.column_config.NumberColumn("Price", format="₱%.2f"),
                     "quantity": st.column_config.NumberColumn("Quantity"),
                 }
