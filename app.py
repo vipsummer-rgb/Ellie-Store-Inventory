@@ -100,14 +100,24 @@ with col_add:
             add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
             add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
         else:
-            # Auto-suggests and filters as the user types in the bar
-            add_name = st.selectbox("Search & Select Item", options=existing_names, key="add_name_select")
+            # index=None forces the field to start empty with a placeholder
+            add_name = st.selectbox(
+                "Search & Select Item", 
+                options=existing_names, 
+                index=None, 
+                placeholder="Type or select an item...",
+                key="add_name_select"
+            )
             
-            # Auto-fill current SKU & Price for reference
-            selected_row = df[df["name"] == add_name].iloc[0]
-            add_sku = selected_row["sku"]
-            add_price = float(selected_row["price"])
-            st.caption(f"Current Price: ₱{add_price:.2f} | Current SKU: {add_sku}")
+            # Show details only when an item is explicitly selected
+            if add_name:
+                selected_row = df[df["name"] == add_name].iloc[0]
+                add_sku = selected_row["sku"]
+                add_price = float(selected_row["price"])
+                st.caption(f"Current Price: ₱{add_price:.2f} | Current SKU: {add_sku}")
+            else:
+                add_sku = ""
+                add_price = 0.0
 
         add_quantity = st.number_input("Quantity to Add", min_value=1, step=1, key="add_qty_input")
         
@@ -147,7 +157,7 @@ with col_add:
                 
                 st.rerun()
             else:
-                st.error("Please fill out or select an Item Name.")
+                st.error("Please select or enter an Item Name first.")
 
 # --- REMOVE STOCK SECTION ---
 with col_remove:
