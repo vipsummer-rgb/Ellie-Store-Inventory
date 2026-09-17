@@ -463,15 +463,8 @@ with tab_history:
     df_tx = get_transaction_history()
     
     if not df_tx.empty:
-        # Top KPI Summary Cards
-        col_kpi1, col_kpi2 = st.columns(2)
-        
-        # Calculate total revenue dynamically
-        clean_totals = df_tx["Total (₱)"].str.replace(",", "").astype(float)
-        total_revenue = clean_totals.sum()
-        
-        col_kpi1.metric("Total Completed Orders", len(df_tx))
-        col_kpi2.metric("Total Revenue", f"₱{total_revenue:,.2f}")
+        # Single KPI Card for Order Count
+        st.metric("Total Completed Orders", len(df_tx))
         
         st.divider()
 
