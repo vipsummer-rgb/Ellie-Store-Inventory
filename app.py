@@ -335,6 +335,19 @@ with tab_inventory:
                 ])))
             else:
                 existing_skus = []
+
+            if is_new_item or not existing_names:
+                add_name = st.text_input("Item Name", key="add_name_input").strip()
+                add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip().upper()
+                add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
+            else:
+                add_name = st.selectbox(
+                    "Search & Select Item Name", 
+                    options=existing_names, 
+                    index=None, 
+                    placeholder="Type or select item name...",
+                    key="add_name_select"
+                )
                 
                 selected_sku_type = st.selectbox(
                     "Search & Select Existing SKU (Optional)",
@@ -345,13 +358,13 @@ with tab_inventory:
                 )
 
                 if add_name:
-                    selected_row = df[df["name"] == add_name].iloc[0]
+                    selected_row = df[df["name"].astype(str).str.strip() == add_name].iloc[0]
                     add_sku = selected_sku_type if selected_sku_type else str(selected_row["sku"]).upper()
                     add_price = float(selected_row["price"])
                     st.caption(f"Current Price: ₱{add_price:.2f} | SKU: {add_sku}")
                 elif selected_sku_type:
-                    selected_row = df[df["sku"].astype(str).str.upper() == selected_sku_type.upper()].iloc[0]
-                    add_name = selected_row["name"]
+                    selected_row = df[df["sku"].astype(str).str.strip().str.upper() == selected_sku_type.upper()].iloc[0]
+                    add_name = str(selected_row["name"]).strip()
                     add_sku = selected_sku_type.upper()
                     add_price = float(selected_row["price"])
                     st.caption(f"Selected Item: {add_name} | Price: ₱{add_price:.2f}")
@@ -383,8 +396,8 @@ with tab_inventory:
                     sku_val = add_sku if add_sku else "N/A"
                     photo_url = upload_image_to_cloud(photo_file) if photo_file else ""
                     
-                    name_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
-                    sku_match = df[(df["sku"].astype(str).str.upper() == sku_val.upper()) & (sku_val.upper() != "N/A")]
+                    name_match = df[df["name"].astype(str).str.strip().str.lower() == add_name.lower()]
+                    sku_match = df[(df["sku"].astype(str).str.strip().str.upper() == sku_val.upper()) & (sku_val.upper() != "N/A")]
                     
                     existing_match = name_match if not name_match.empty else sku_match
                     
