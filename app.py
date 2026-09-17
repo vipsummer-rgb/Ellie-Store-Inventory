@@ -90,17 +90,30 @@ col_add, col_remove = st.columns(2)
 # --- ADD STOCK SECTION ---
 with col_add:
     with st.expander("➕ Add Stock Item", expanded=False):
-        # SKU is now optional
-        add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
-        add_name = st.text_input("Item Name", key="add_name_input").strip()
-        add_quantity = st.number_input("Quantity", min_value=1, step=1, key="add_qty_input")
-        add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
+        # Toggle between existing item suggestion or completely new entry
+        is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
+        
+        existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
+        
+        if is_new_item or not existing_names:
+            add_name = st.text_input("Item Name", key="add_name_input").strip()
+            add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
+            add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
+        else:
+            # Auto-suggests and filters as the user types in the bar
+            add_name = st.selectbox("Search & Select Item", options=existing_names, key="add_name_select")
+            
+            # Auto-fill current SKU & Price for reference
+            selected_row = df[df["name"] == add_name].iloc[0]
+            add_sku = selected_row["sku"]
+            add_price = float(selected_row["price"])
+            st.caption(f"Current Price: ₱{add_price:.2f} | Current SKU: {add_sku}")
+
+        add_quantity = st.number_input("Quantity to Add", min_value=1, step=1, key="add_qty_input")
         
         if st.button("Save Stock", key="btn_save_new"):
             if add_name:
                 sku_val = add_sku if add_sku else "N/A"
-                
-                # Check if item name already exists (case-insensitive)
                 existing_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
                 
                 if not existing_match.empty:
@@ -109,10 +122,9 @@ with col_add:
                     current_qty = int(df.iloc[row_idx]["quantity"])
                     new_qty = current_qty + add_quantity
                     
-                    row_number = row_idx + 2  # Account for header
+                    row_number = row_idx + 2
                     qty_col_idx = df.columns.get_loc("quantity") + 1
                     
-                    # Update cell in Google Sheet
                     sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
                     log_action(
@@ -135,7 +147,7 @@ with col_add:
                 
                 st.rerun()
             else:
-                st.error("Please fill out the Item Name.")
+                st.error("Please fill out or select an Item Name.")
 
 # --- REMOVE STOCK SECTION ---
 with col_remove:
