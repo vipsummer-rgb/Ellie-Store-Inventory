@@ -47,12 +47,12 @@ def load_data():
         return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price"])
     
     df_loaded = pd.DataFrame(records)
-    # Standardize column headers to lowercase
     df_loaded.columns = [str(c).strip().lower() for c in df_loaded.columns]
     
     for col in ["sku", "name"]:
         if col in df_loaded.columns:
-            df_loaded[col] = df_loaded[col].astype(str)
+            # Capitalize name and sku, removing excess whitespace
+            df_loaded[col] = df_loaded[col].astype(str).str.strip().str.upper()
             
     return df_loaded
 
@@ -225,7 +225,9 @@ with tab_pos:
                     fresh_df = load_data()
 
                     for item in st.session_state["cart"]:
-                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.lower() == str(item["name"]).strip().lower()]
+                        item_name_upper = str(item["name"]).strip().upper()
+                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.upper() == item_name_upper]
+                        
                         if not match.empty:
                             row_idx = match.index[0]
                             current_qty = int(fresh_df.iloc[row_idx]["quantity"])
@@ -293,29 +295,30 @@ with tab_inventory:
             if st.button("Save Stock", key="btn_save_new"):
                 if add_name:
                     try:
-                        sku_val = add_sku if add_sku else "N/A"
+                        # Force Name and SKU to uppercase
+                        add_name = add_name.strip().upper()
+                        sku_val = add_sku.strip().upper() if add_sku else "N/A"
+
                         headers = sheet.row_values(1)
                         qty_col_idx = get_quantity_col_idx(headers)
 
-                        # Fetch fresh data directly from sheet
                         fresh_df = load_data()
-                        target_name = add_name.strip().lower()
-
-                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.lower() == target_name] if not fresh_df.empty and "name" in fresh_df.columns else pd.DataFrame()
+                        
+                        # Match against normalized uppercase name
+                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.upper() == add_name] if not fresh_df.empty and "name" in fresh_df.columns else pd.DataFrame()
 
                         if not match.empty:
                             row_idx = match.index[0]
                             current_qty = int(fresh_df.iloc[row_idx]["quantity"])
                             new_qty = current_qty + add_quantity
                             
-                            # Update exact row cell (Row 1 is Header, so Row Index + 2)
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
 
                             log_action(st.session_state["username"], "ADD STOCK", f"Added {add_quantity} to '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})")
                             st.success(f"Successfully updated '{add_name}'! New total: {new_qty}")
                         else:
-                            # Append a brand new row at the bottom
+                            # Save to Google Sheets in ALL CAPS
                             next_row = len(fresh_df) + 2
                             new_id = len(fresh_df) + 1
                             new_row_data = [[new_id, sku_val, add_name, add_quantity, add_price]]
