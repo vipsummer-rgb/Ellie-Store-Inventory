@@ -93,10 +93,15 @@ with tab_pos:
     if "cart" not in st.session_state:
         st.session_state["cart"] = []
 
-    col_catalog, col_cart = st.columns([1, 1])
+    col_catalog, col_cart = st.columns([1, 1.2])
 
+    # --- LEFT COLUMN: COMPACT PRODUCT SELECTION ---
     with col_catalog:
-        st.markdown("##### 1. Select Product")
+        st.markdown("##### Add Item to Cart")
+        
+        # Optional Order Name
+        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Table 3, Walk-in, Jemo", key="pos_order_name").strip()
+        
         if not df.empty:
             in_stock_df = df[df["quantity"] > 0]
             
@@ -106,10 +111,10 @@ with tab_pos:
                 ).tolist()
                 
                 selected_item_str = st.selectbox(
-                    "Search Product", 
+                    "Product", 
                     options=item_options, 
                     index=None, 
-                    placeholder="Type to search product...",
+                    placeholder="Select or type product...",
                     key="pos_item_select"
                 )
 
@@ -119,7 +124,7 @@ with tab_pos:
                     max_available = int(item_data["quantity"])
                     
                     order_qty = st.number_input(
-                        "Quantity", 
+                        "Qty", 
                         min_value=1, 
                         max_value=max_available, 
                         value=1, 
@@ -127,49 +132,79 @@ with tab_pos:
                         key="pos_qty_input"
                     )
                     
-                    if st.button("➕ Add to Cart", use_container_width=True):
+                    if st.button("➕ Add to Cart", use_container_width=True, type="secondary"):
                         existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
                         
                         if existing_cart_item:
                             if existing_cart_item["qty"] + order_qty > max_available:
-                                st.error(f"Cannot add more. Max stock available is {max_available}.")
+                                st.error(f"Cannot add more. Only {max_available} available in stock.")
                             else:
                                 existing_cart_item["qty"] += order_qty
-                                st.success(f"Updated '{item_data['name']}' quantity in cart!")
+                                st.success(f"Updated '{item_data['name']}' quantity!")
+                                st.rerun()
                         else:
                             st.session_state["cart"].append({
                                 "sku": item_data["sku"],
                                 "name": item_data["name"],
                                 "qty": order_qty,
                                 "price": float(item_data["price"]),
-                                "subtotal": order_qty * float(item_data["price"])
+                                "max_stock": max_available
                             })
                             st.success(f"Added '{item_data['name']}' to cart!")
+                            st.rerun()
             else:
                 st.info("No items currently in stock.")
         else:
             st.info("Inventory is empty.")
 
+    # --- RIGHT COLUMN: CLEAN INTERACTIVE CART ---
     with col_cart:
-        st.markdown("##### 2. Current Cart")
+        st.markdown("##### Current Cart")
         
         if st.session_state["cart"]:
-            cart_df = pd.DataFrame(st.session_state["cart"])
-            cart_df["subtotal"] = cart_df["qty"] * cart_df["price"]
-            
-            st.dataframe(
-                cart_df[["name", "qty", "price", "subtotal"]], 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "price": st.column_config.NumberColumn("Unit Price", format="₱%.2f"),
-                    "subtotal": st.column_config.NumberColumn("Subtotal", format="₱%.2f"),
-                }
-            )
-            
-            total_amount = cart_df["subtotal"].sum()
-            st.markdown(f"### **Total Amount:** ₱{total_amount:,.2f}")
-            
+            # Table Header
+            c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 2, 1.5, 1.5])
+            c_name.caption("**Name**")
+            c_qty.caption("**Qty Adjustment**")
+            c_price.caption("**Unit Price**")
+            c_subtotal.caption("**Subtotal**")
+            st.divider()
+
+            grand_total = 0.0
+
+            # Dynamic Cart Rows with (-) (+) buttons
+            for idx, item in enumerate(st.session_state["cart"]):
+                subtotal = item["qty"] * item["price"]
+                grand_total += subtotal
+
+                row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 2, 1.5, 1.5])
+                
+                row_name.write(item["name"])
+                
+                # Inline Quantity Adjuster: (-) QTY (+)
+                q_minus, q_val, q_plus = row_qty.columns([1, 1.2, 1])
+                
+                if q_minus.button("➖", key=f"btn_minus_{idx}"):
+                    item["qty"] -= 1
+                    if item["qty"] <= 0:
+                        st.session_state["cart"].pop(idx)
+                    st.rerun()
+
+                q_val.markdown(f"<div style='text-align: center; font-weight: bold;'>{item['qty']}</div>", unsafe_allow_html=True)
+
+                if q_plus.button("➕", key=f"btn_plus_{idx}"):
+                    if item["qty"] + 1 <= item["max_stock"]:
+                        item["qty"] += 1
+                        st.rerun()
+                    else:
+                        st.toast(f"Max stock limit reached ({item['max_stock']})")
+
+                row_price.write(f"₱{item['price']:.2f}")
+                row_subtotal.write(f"**₱{subtotal:,.2f}**")
+
+            st.divider()
+            st.markdown(f"### **Total:** ₱{grand_total:,.2f}")
+
             col_clear, col_checkout = st.columns(2)
             
             with col_clear:
@@ -179,6 +214,7 @@ with tab_pos:
 
             with col_checkout:
                 if st.button("✅ Complete Order", type="primary", use_container_width=True):
+                    # Deduct quantities in Google Sheets
                     for item in st.session_state["cart"]:
                         match = df[df["name"] == item["name"]]
                         if not match.empty:
@@ -190,18 +226,21 @@ with tab_pos:
                             qty_col_idx = df.columns.get_loc("quantity") + 1
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
+                    # Construct audit log string
+                    order_ref = f" [Order Ref: {order_name}]" if order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
+                    
                     log_action(
                         st.session_state["username"],
                         "ORDER COMPLETED",
-                        f"Items: [{order_summary}] | Total: ₱{total_amount:,.2f}"
+                        f"Items: [{order_summary}]{order_ref} | Total: ₱{grand_total:,.2f}"
                     )
                     
-                    st.success(f"Order completed successfully! Total: ₱{total_amount:,.2f}")
+                    st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
                     st.rerun()
         else:
-            st.info("Your cart is empty. Select products on the left to add.")
+            st.info("Cart is empty. Select a product on the left to start.")
 
 # ==========================================
 # TAB 2: INVENTORY MANAGEMENT
