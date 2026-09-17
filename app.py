@@ -87,11 +87,34 @@ st.divider()
 # --- SECTION 1: ADD / REMOVE STOCK ITEMS ---
 col_add, col_remove = st.columns(2)
 
+# Initialize reset flags in session_state if they don't exist
+if "clear_add_flag" not in st.session_state:
+    st.session_state["clear_add_flag"] = False
+if "clear_remove_flag" not in st.session_state:
+    st.session_state["clear_remove_flag"] = False
+
+# Callback functions to reset inputs BEFORE the rerun cycle finishes
+def reset_add_inputs():
+    st.session_state["clear_add_flag"] = True
+
+def reset_remove_inputs():
+    st.session_state["clear_remove_flag"] = True
+
+
 # --- ADD STOCK SECTION ---
 with col_add:
     with st.expander("➕ Add Stock Item", expanded=False):
+        # Clear values if flag is raised
+        if st.session_state["clear_add_flag"]:
+            st.session_state["add_name_input"] = ""
+            st.session_state["add_sku_input"] = ""
+            st.session_state["add_name_select"] = None
+            st.session_state["add_qty_input"] = 1
+            st.session_state["add_price_input"] = 0.0
+            st.session_state["chk_is_new"] = False
+            st.session_state["clear_add_flag"] = False  # Reset flag
+
         is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
-        
         existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
         
         if is_new_item or not existing_names:
@@ -106,7 +129,6 @@ with col_add:
                 placeholder="Type or select an item...",
                 key="add_name_select"
             )
-            
             if add_name:
                 selected_row = df[df["name"] == add_name].iloc[0]
                 add_sku = selected_row["sku"]
@@ -130,8 +152,8 @@ with col_add:
                     
                     row_number = row_idx + 2
                     qty_col_idx = df.columns.get_loc("quantity") + 1
-                    
                     sheet.update_cell(row_number, qty_col_idx, new_qty)
+                    
                     log_action(
                         st.session_state["username"], 
                         "ADD STOCK", 
@@ -141,6 +163,7 @@ with col_add:
                 else:
                     new_id = len(df) + 1
                     sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
+                    
                     log_action(
                         st.session_state["username"], 
                         "ADD ITEM", 
@@ -148,25 +171,22 @@ with col_add:
                     )
                     st.success(f"Added new item '{add_name}' successfully!")
                 
-                # --- RESET ADD FORM INPUTS ---
-                if "add_name_input" in st.session_state:
-                    st.session_state["add_name_input"] = ""
-                if "add_sku_input" in st.session_state:
-                    st.session_state["add_sku_input"] = ""
-                if "add_name_select" in st.session_state:
-                    st.session_state["add_name_select"] = None
-                st.session_state["add_qty_input"] = 1
-                st.session_state["add_price_input"] = 0.0
-                st.session_state["chk_is_new"] = False
-                
+                reset_add_inputs()
                 st.rerun()
             else:
                 st.error("Please select or enter an Item Name first.")
+
 
 # --- REMOVE STOCK SECTION ---
 with col_remove:
     with st.expander("➖ Remove / Deduct Stock", expanded=False):
         if not df.empty:
+            if st.session_state["clear_remove_flag"]:
+                st.session_state["remove_select_input"] = None
+                st.session_state["remove_qty_input"] = 1
+                st.session_state["remove_reason_input"] = ""
+                st.session_state["clear_remove_flag"] = False
+
             item_options = df.apply(lambda r: f"{r['sku']} - {r['name']} (Current: {r['quantity']})", axis=1).tolist()
             selected_item_str = st.selectbox(
                 "Select Item to Deduct", 
@@ -194,8 +214,8 @@ with col_remove:
                         qty_col_idx = df.columns.get_loc("quantity") + 1
                         
                         sheet.update_cell(row_number, qty_col_idx, new_qty)
-                        
                         reason_str = f" | Reason: {reason}" if reason else ""
+                        
                         log_action(
                             st.session_state["username"],
                             "REMOVE STOCK",
@@ -203,11 +223,7 @@ with col_remove:
                         )
                         st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
                         
-                        # --- RESET REMOVE FORM INPUTS ---
-                        st.session_state["remove_select_input"] = None
-                        st.session_state["remove_qty_input"] = 1
-                        st.session_state["remove_reason_input"] = ""
-                        
+                        reset_remove_inputs()
                         st.rerun()
                 else:
                     st.error("Please select an item to deduct.")
