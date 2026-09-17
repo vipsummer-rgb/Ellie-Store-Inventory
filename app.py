@@ -256,9 +256,18 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    order_ref = f" [Order Ref: {order_name}]" if order_name else ""
+                    # Read the order name input from session state
+                    order_name_val = st.session_state.get("pos_order_name", "").strip()
+                    order_ref = f"Order Name: {order_name_val.upper()} | " if order_name_val else ""
+                    
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
-                    log_action(st.session_state["username"], "ORDER COMPLETED", f"Items: [{order_summary}]{order_ref} | Total: ₱{grand_total:,.2f}")
+                    
+                    # Format log details to prominent order name
+                    log_action(
+                        st.session_state["username"], 
+                        "ORDER COMPLETED", 
+                        f"{order_ref}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
+                    )
                     
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
