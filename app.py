@@ -89,27 +89,53 @@ col_add, col_remove = st.columns(2)
 
 # --- ADD STOCK SECTION ---
 with col_add:
-    with st.expander("➕ Add New Stock Item", expanded=False):
-        # Regular inputs (pressing Enter will NOT submit now)
-        add_sku = st.text_input("SKU Code", key="add_sku_input")
-        add_name = st.text_input("Item Name", key="add_name_input")
+    with st.expander("➕ Add Stock Item", expanded=False):
+        # SKU is now optional
+        add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
+        add_name = st.text_input("Item Name", key="add_name_input").strip()
         add_quantity = st.number_input("Quantity", min_value=1, step=1, key="add_qty_input")
         add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
         
-        # Action requires clicking this button explicitly
-        if st.button("Save New Item", key="btn_save_new"):
-            if add_sku and add_name:
-                new_id = len(df) + 1
-                sheet.append_row([new_id, add_sku, add_name, add_quantity, add_price])
-                log_action(
-                    st.session_state["username"], 
-                    "ADD ITEM", 
-                    f"Added SKU: {add_sku}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
-                )
-                st.success(f"Added '{add_name}' successfully!")
+        if st.button("Save Stock", key="btn_save_new"):
+            if add_name:
+                sku_val = add_sku if add_sku else "N/A"
+                
+                # Check if item name already exists (case-insensitive)
+                existing_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
+                
+                if not existing_match.empty:
+                    # ITEM EXISTS: Update existing quantity
+                    row_idx = existing_match.index[0]
+                    current_qty = int(df.iloc[row_idx]["quantity"])
+                    new_qty = current_qty + add_quantity
+                    
+                    row_number = row_idx + 2  # Account for header
+                    qty_col_idx = df.columns.get_loc("quantity") + 1
+                    
+                    # Update cell in Google Sheet
+                    sheet.update_cell(row_number, qty_col_idx, new_qty)
+                    
+                    log_action(
+                        st.session_state["username"], 
+                        "ADD STOCK", 
+                        f"Added {add_quantity} to existing '{add_name}' (New Total: {new_qty})"
+                    )
+                    st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
+                else:
+                    # NEW ITEM: Add new row
+                    new_id = len(df) + 1
+                    sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
+                    
+                    log_action(
+                        st.session_state["username"], 
+                        "ADD ITEM", 
+                        f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
+                    )
+                    st.success(f"Added new item '{add_name}' successfully!")
+                
                 st.rerun()
             else:
-                st.error("Please fill out both SKU and Item Name.")
+                st.error("Please fill out the Item Name.")
 
 # --- REMOVE STOCK SECTION ---
 with col_remove:
