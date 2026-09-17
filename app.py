@@ -90,7 +90,6 @@ col_add, col_remove = st.columns(2)
 # --- ADD STOCK SECTION ---
 with col_add:
     with st.expander("➕ Add Stock Item", expanded=False):
-        # Toggle between existing item suggestion or completely new entry
         is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
         
         existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
@@ -100,7 +99,6 @@ with col_add:
             add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip()
             add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
         else:
-            # index=None forces the field to start empty with a placeholder
             add_name = st.selectbox(
                 "Search & Select Item", 
                 options=existing_names, 
@@ -109,7 +107,6 @@ with col_add:
                 key="add_name_select"
             )
             
-            # Show details only when an item is explicitly selected
             if add_name:
                 selected_row = df[df["name"] == add_name].iloc[0]
                 add_sku = selected_row["sku"]
@@ -127,7 +124,6 @@ with col_add:
                 existing_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
                 
                 if not existing_match.empty:
-                    # ITEM EXISTS: Update existing quantity
                     row_idx = existing_match.index[0]
                     current_qty = int(df.iloc[row_idx]["quantity"])
                     new_qty = current_qty + add_quantity
@@ -136,7 +132,6 @@ with col_add:
                     qty_col_idx = df.columns.get_loc("quantity") + 1
                     
                     sheet.update_cell(row_number, qty_col_idx, new_qty)
-                    
                     log_action(
                         st.session_state["username"], 
                         "ADD STOCK", 
@@ -144,16 +139,25 @@ with col_add:
                     )
                     st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
                 else:
-                    # NEW ITEM: Add new row
                     new_id = len(df) + 1
                     sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
-                    
                     log_action(
                         st.session_state["username"], 
                         "ADD ITEM", 
                         f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
                     )
                     st.success(f"Added new item '{add_name}' successfully!")
+                
+                # --- RESET ADD FORM INPUTS ---
+                if "add_name_input" in st.session_state:
+                    st.session_state["add_name_input"] = ""
+                if "add_sku_input" in st.session_state:
+                    st.session_state["add_sku_input"] = ""
+                if "add_name_select" in st.session_state:
+                    st.session_state["add_name_select"] = None
+                st.session_state["add_qty_input"] = 1
+                st.session_state["add_price_input"] = 0.0
+                st.session_state["chk_is_new"] = False
                 
                 st.rerun()
             else:
@@ -164,12 +168,17 @@ with col_remove:
     with st.expander("➖ Remove / Deduct Stock", expanded=False):
         if not df.empty:
             item_options = df.apply(lambda r: f"{r['sku']} - {r['name']} (Current: {r['quantity']})", axis=1).tolist()
-            selected_item_str = st.selectbox("Select Item to Deduct", item_options, key="remove_select_input")
+            selected_item_str = st.selectbox(
+                "Select Item to Deduct", 
+                options=item_options, 
+                index=None,
+                placeholder="Type or select an item...",
+                key="remove_select_input"
+            )
             
             deduct_qty = st.number_input("Quantity to Remove", min_value=1, step=1, key="remove_qty_input")
             reason = st.text_input("Reason (Optional)", placeholder="e.g., Sold, Damaged, Expired", key="remove_reason_input")
             
-            # Action requires clicking this button explicitly
             if st.button("Deduct Stock", key="btn_deduct_stock"):
                 if selected_item_str:
                     selected_idx = item_options.index(selected_item_str)
@@ -193,7 +202,15 @@ with col_remove:
                             f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}"
                         )
                         st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
+                        
+                        # --- RESET REMOVE FORM INPUTS ---
+                        st.session_state["remove_select_input"] = None
+                        st.session_state["remove_qty_input"] = 1
+                        st.session_state["remove_reason_input"] = ""
+                        
                         st.rerun()
+                else:
+                    st.error("Please select an item to deduct.")
         else:
             st.info("No items in inventory to remove.")
 
