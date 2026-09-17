@@ -17,13 +17,11 @@ def get_gsheet():
     gc = gspread.service_account_from_dict(credentials)
     sh = gc.open("Inventory DB - TEST")
     
-    # Target your inventory worksheet directly by name
     try:
-        inventory_sheet = sh.worksheet("Sheet1")  # <-- CHANGE "Sheet1" if your tab has a different name
+        inventory_sheet = sh.worksheet("Sheet1")
     except gspread.exceptions.WorksheetNotFound:
         inventory_sheet = sh.sheet1
 
-    # Retrieve or create Logs tab
     try:
         log_sheet = sh.worksheet("Logs")
     except gspread.exceptions.WorksheetNotFound:
@@ -51,7 +49,6 @@ def load_data():
     
     for col in ["sku", "name"]:
         if col in df_loaded.columns:
-            # Capitalize name and sku, removing excess whitespace
             df_loaded[col] = df_loaded[col].astype(str).str.strip().str.upper()
             
     return df_loaded
@@ -124,12 +121,11 @@ with tab_pos:
     if "cart" not in st.session_state:
         st.session_state["cart"] = []
 
-    # Flag to trigger input field reset after adding to cart or completing order
     if "clear_pos_flag" not in st.session_state:
         st.session_state["clear_pos_flag"] = False
 
     if st.session_state["clear_pos_flag"]:
-        st.session_state["pos_order_name"] = ""  # <-- Reset order name HERE before text_input renders
+        st.session_state["pos_order_name"] = ""
         st.session_state["pos_item_select"] = None
         st.session_state["pos_qty_input"] = 0
         st.session_state["clear_pos_flag"] = False
@@ -159,7 +155,6 @@ with tab_pos:
             item_data = in_stock_df.iloc[selected_idx]
             max_available = int(item_data["quantity"])
 
-        # Default min_value set to 0 so it can hold 0 when cleared
         order_qty = st.number_input(
             "Qty", 
             min_value=0, 
@@ -167,7 +162,6 @@ with tab_pos:
             key="pos_qty_input"
         )
         
-        # Disable button if no product selected or quantity is 0
         can_add = selected_item_str is not None and order_qty > 0
 
         if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not can_add):
@@ -179,7 +173,6 @@ with tab_pos:
                         st.error(f"Cannot add more. Max stock is {max_available}.")
                     else:
                         existing_cart_item["qty"] += order_qty
-                        st.session_state["clear_pos_flag"] = True
                         st.rerun()
                 else:
                     st.session_state["cart"].append({
@@ -189,7 +182,6 @@ with tab_pos:
                         "price": float(item_data["price"]),
                         "max_stock": max_available
                     })
-                    st.session_state["clear_pos_flag"] = True
                     st.rerun()
 
     with col_cart:
@@ -256,10 +248,8 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    # Grab current order name safely
-                    order_name_val = st.session_state.get("pos_order_name", "").strip()
-                    order_ref = f"Order Name: {order_name_val.upper()} | " if order_name_val else ""
-                    
+                    # Read order name directly from variable captured before rerun
+                    order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
                     log_action(
@@ -270,8 +260,6 @@ with tab_pos:
                     
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
-                    
-                    # Trigger the reset flag and rerun
                     st.session_state["clear_pos_flag"] = True
                     st.rerun()
         else:
@@ -314,7 +302,7 @@ with tab_inventory:
                 selected_name = st.selectbox("Search & Select Item Name", options=existing_names, index=None, placeholder="Type or select item...", key="add_name_select")
                 if selected_name:
                     add_name = selected_name
-                    name_mask = df["name"].astype(str).str.strip().str.lower() == selected_name.lower()
+                    name_mask = df["name"].astype(str).str.strip().str.upper() == selected_name.upper()
                     if name_mask.any():
                         selected_row = df[name_mask].iloc[0]
                         add_sku = str(selected_row.get("sku", "N/A")).upper()
@@ -326,7 +314,6 @@ with tab_inventory:
             if st.button("Save Stock", key="btn_save_new"):
                 if add_name:
                     try:
-                        # Force Name and SKU to uppercase
                         add_name = add_name.strip().upper()
                         sku_val = add_sku.strip().upper() if add_sku else "N/A"
 
@@ -335,7 +322,6 @@ with tab_inventory:
 
                         fresh_df = load_data()
                         
-                        # Match against normalized uppercase name
                         match = fresh_df[fresh_df["name"].astype(str).str.strip().str.upper() == add_name] if not fresh_df.empty and "name" in fresh_df.columns else pd.DataFrame()
 
                         if not match.empty:
@@ -349,12 +335,9 @@ with tab_inventory:
                             log_action(st.session_state["username"], "ADD STOCK", f"Added {add_quantity} to '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})")
                             st.success(f"Successfully updated '{add_name}'! New total: {new_qty}")
                         else:
-                            # Save to Google Sheets in ALL CAPS
-                            next_row = len(fresh_df) + 2
+                            # Append clean 1D list row
                             new_id = len(fresh_df) + 1
-                            new_row_data = [[new_id, sku_val, add_name, add_quantity, add_price]]
-                            
-                            sheet.update(f"A{next_row}:E{next_row}", new_row_data)
+                            sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
                             log_action(st.session_state["username"], "ADD ITEM", f"Created new item: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}")
                             st.success(f"Added new product '{add_name}' to inventory!")
 
@@ -376,25 +359,33 @@ with tab_inventory:
 
                 if st.button("Deduct Stock", key="btn_deduct_stock"):
                     if selected_item_str:
-                        selected_idx = item_options.index(selected_item_str)
-                        row_data = df.iloc[selected_idx]
-                        current_qty = int(row_data["quantity"])
-                        item_name = str(row_data["name"])
+                        # Extract exact product name before the hyphen marker
+                        raw_selected_name = selected_item_str.split(" - ")[0].strip().upper()
+                        
+                        fresh_df = load_data()
+                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.upper() == raw_selected_name]
 
-                        if deduct_qty > current_qty:
-                            st.error(f"Cannot remove {deduct_qty}. Only {current_qty} in stock!")
+                        if not match.empty:
+                            row_idx = match.index[0]
+                            current_qty = int(fresh_df.iloc[row_idx]["quantity"])
+                            item_name = str(fresh_df.iloc[row_idx]["name"])
+
+                            if deduct_qty > current_qty:
+                                st.error(f"Cannot remove {deduct_qty}. Only {current_qty} in stock!")
+                            else:
+                                new_qty = current_qty - deduct_qty
+                                headers = sheet.row_values(1)
+                                qty_col_idx = get_quantity_col_idx(headers)
+                                
+                                row_number = row_idx + 2
+                                sheet.update_cell(row_number, qty_col_idx, new_qty)
+                                
+                                reason_str = f" | Reason: {reason}" if reason else ""
+                                log_action(st.session_state["username"], "REMOVE STOCK", f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}")
+                                st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
+                                st.rerun()
                         else:
-                            new_qty = current_qty - deduct_qty
-                            headers = sheet.row_values(1)
-                            qty_col_idx = get_quantity_col_idx(headers)
-                            
-                            row_number = selected_idx + 2
-                            sheet.update_cell(row_number, qty_col_idx, new_qty)
-                            
-                            reason_str = f" | Reason: {reason}" if reason else ""
-                            log_action(st.session_state["username"], "REMOVE STOCK", f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}")
-                            st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
-                            st.rerun()
+                            st.error("Item not found in current inventory database.")
             else:
                 st.info("No items in inventory to remove.")
 
@@ -409,7 +400,7 @@ with tab_inventory:
     # --- AUDIT LOGS ---
     if st.session_state["username"] == "admin":
         st.divider()
-        with st.expander("📜 View Audit Log (Live - Auto Refreshes Every 30s)", expanded=True):
+        with st.expander("📜 View Audit Log", expanded=True):
             logs = log_sheet.get_all_records()
             if logs:
                 st.dataframe(pd.DataFrame(logs).sort_values(by="Timestamp", ascending=False), use_container_width=True, hide_index=True)
