@@ -317,21 +317,24 @@ with tab_inventory:
 
             is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
             
-            existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
-            existing_skus = sorted([str(s) for s in df["sku"].dropna().unique() if str(s).upper() != "N/A"]) if not df.empty else []
-
-            if is_new_item or not existing_names:
-                add_name = st.text_input("Item Name", key="add_name_input").strip()
-                add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip().upper()
-                add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
+            # --- SAFELY BUILD EXISTING NAMES & SKUS LISTS ---
+            if not df.empty and "name" in df.columns:
+                existing_names = sorted(list(set([
+                    str(name).strip() 
+                    for name in df["name"].dropna().tolist() 
+                    if str(name).strip() != ""
+                ])))
             else:
-                add_name = st.selectbox(
-                    "Search & Select Item Name", 
-                    options=existing_names, 
-                    index=None, 
-                    placeholder="Type or select item name...",
-                    key="add_name_select"
-                )
+                existing_names = []
+
+            if not df.empty and "sku" in df.columns:
+                existing_skus = sorted(list(set([
+                    str(s).strip().upper() 
+                    for s in df["sku"].dropna().tolist() 
+                    if str(s).strip().upper() not in ["N/A", ""]
+                ])))
+            else:
+                existing_skus = []
                 
                 selected_sku_type = st.selectbox(
                     "Search & Select Existing SKU (Optional)",
