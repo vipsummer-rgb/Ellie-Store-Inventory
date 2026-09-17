@@ -197,48 +197,56 @@ with col_remove:
         else:
             st.info("No items in inventory to remove.")
 
+
 # --- SECTION 2: EDIT & MANAGE INVENTORY ---
 st.subheader("📋 Current Stock Levels")
 
-if not df.empty:
-    edited_df = st.data_editor(
-        df,
-        key="inventory_editor",
-        use_container_width=True,
-        hide_index=True,
-        disabled=["id", "sku"],
-        column_config={
-            "price": st.column_config.NumberColumn("Price", format="₱%.2f"),
-            "quantity": st.column_config.NumberColumn("Quantity"),
-        }
-    )
+@st.fragment(run_every=30)
+def render_live_inventory():
+    # Fetch latest data from Google Sheets on every 30s cycle
+    df_live = load_data()
+    
+    if not df_live.empty:
+        edited_df = st.data_editor(
+            df_live,
+            key="inventory_editor",
+            use_container_width=True,
+            hide_index=True,
+            disabled=["id", "sku"],
+            column_config={
+                "price": st.column_config.NumberColumn("Price", format="₱%.2f"),
+                "quantity": st.column_config.NumberColumn("Quantity"),
+            }
+        )
 
-    if st.button("💾 Save All Edits"):
-        changes = st.session_state["inventory_editor"]["edited_rows"]
-        if changes:
-            for row_idx, updated_cols in changes.items():
-                row_number = row_idx + 2
-                item_name = df.iloc[row_idx]["name"]
-                
-                for col_name, new_val in updated_cols.items():
-                    col_idx = df.columns.get_loc(col_name) + 1
-                    old_val = df.iloc[row_idx][col_name]
-                    sheet.update_cell(row_number, col_idx, new_val)
+        if st.button("💾 Save All Edits"):
+            changes = st.session_state["inventory_editor"]["edited_rows"]
+            if changes:
+                for row_idx, updated_cols in changes.items():
+                    row_number = row_idx + 2
+                    item_name = df_live.iloc[row_idx]["name"]
                     
-                    log_action(
-                        st.session_state["username"],
-                        "UPDATE ITEM", 
-                        f"Changed '{item_name}' ({col_name}): {old_val} ➔ {new_val}"
-                    )
-            
-            st.success("All edits saved and logged successfully!")
-            st.rerun()
-        else:
-            st.info("No changes were made.")
-else:
-    st.info("No items found in your inventory sheet.")
+                    for col_name, new_val in updated_cols.items():
+                        col_idx = df_live.columns.get_loc(col_name) + 1
+                        old_val = df_live.iloc[row_idx][col_name]
+                        sheet.update_cell(row_number, col_idx, new_val)
+                        
+                        log_action(
+                            st.session_state["username"],
+                            "UPDATE ITEM", 
+                            f"Changed '{item_name}' ({col_name}): {old_val} ➔ {new_val}"
+                        )
+                
+                st.success("All edits saved and logged successfully!")
+                st.rerun()
+            else:
+                st.info("No changes were made.")
+    else:
+        st.info("No items found in your inventory sheet.")
 
-# --- SECTION 3: AUDIT LOG VIEWER (ADMIN ONLY) ---
+render_live_inventory()
+
+
 # --- SECTION 3: AUDIT LOG VIEWER (ADMIN ONLY) ---
 if st.session_state["username"] == "admin":
     st.divider()
