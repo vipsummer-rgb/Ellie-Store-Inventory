@@ -93,114 +93,127 @@ with tab_pos:
     if "cart" not in st.session_state:
         st.session_state["cart"] = []
 
-    col_catalog, col_cart = st.columns([1, 1.2])
+    col_catalog, col_cart = st.columns([1, 1.3])
 
-    # --- LEFT COLUMN: COMPACT PRODUCT SELECTION ---
+    # --- LEFT COLUMN: ALWAYS-VISIBLE PRODUCT SELECTION ---
     with col_catalog:
         st.markdown("##### Add Item to Cart")
         
-        # Optional Order Name
+        # 1. Order Name
         order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Table 3, Walk-in, Jemo", key="pos_order_name").strip()
         
-        if not df.empty:
-            in_stock_df = df[df["quantity"] > 0]
-            
-            if not in_stock_df.empty:
-                item_options = in_stock_df.apply(
-                    lambda r: f"{r['name']} | Stock: {r['quantity']} | ₱{float(r['price']):.2f}", axis=1
-                ).tolist()
-                
-                selected_item_str = st.selectbox(
-                    "Product", 
-                    options=item_options, 
-                    index=None, 
-                    placeholder="Select or type product...",
-                    key="pos_item_select"
-                )
-
-                if selected_item_str:
-                    selected_idx = item_options.index(selected_item_str)
-                    item_data = in_stock_df.iloc[selected_idx]
-                    max_available = int(item_data["quantity"])
-                    
-                    order_qty = st.number_input(
-                        "Qty", 
-                        min_value=1, 
-                        max_value=max_available, 
-                        value=1, 
-                        step=1, 
-                        key="pos_qty_input"
-                    )
-                    
-                    if st.button("➕ Add to Cart", use_container_width=True, type="secondary"):
-                        existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
-                        
-                        if existing_cart_item:
-                            if existing_cart_item["qty"] + order_qty > max_available:
-                                st.error(f"Cannot add more. Only {max_available} available in stock.")
-                            else:
-                                existing_cart_item["qty"] += order_qty
-                                st.success(f"Updated '{item_data['name']}' quantity!")
-                                st.rerun()
-                        else:
-                            st.session_state["cart"].append({
-                                "sku": item_data["sku"],
-                                "name": item_data["name"],
-                                "qty": order_qty,
-                                "price": float(item_data["price"]),
-                                "max_stock": max_available
-                            })
-                            st.success(f"Added '{item_data['name']}' to cart!")
-                            st.rerun()
-            else:
-                st.info("No items currently in stock.")
+        # Build dropdown options
+        in_stock_df = df[df["quantity"] > 0] if not df.empty else pd.DataFrame()
+        
+        if not in_stock_df.empty:
+            item_options = in_stock_df.apply(
+                lambda r: f"{r['name']} | Stock: {r['quantity']} | ₱{float(r['price']):.2f}", axis=1
+            ).tolist()
         else:
-            st.info("Inventory is empty.")
+            item_options = []
 
-    # --- RIGHT COLUMN: CLEAN INTERACTIVE CART ---
+        # 2. Product Dropdown (Always visible)
+        selected_item_str = st.selectbox(
+            "Product", 
+            options=item_options, 
+            index=None, 
+            placeholder="Select or type product..." if item_options else "No items in stock",
+            disabled=len(item_options) == 0,
+            key="pos_item_select"
+        )
+
+        # 3. Quantity Input (Always visible)
+        max_available = 9999
+        if selected_item_str and not in_stock_df.empty:
+            selected_idx = item_options.index(selected_item_str)
+            item_data = in_stock_df.iloc[selected_idx]
+            max_available = int(item_data["quantity"])
+
+        order_qty = st.number_input(
+            "Qty", 
+            min_value=1, 
+            max_value=max_available if selected_item_str else 1, 
+            value=1, 
+            step=1, 
+            disabled=not selected_item_str,
+            key="pos_qty_input"
+        )
+        
+        # 4. Add to Cart Button (Always visible)
+        if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not selected_item_str):
+            if selected_item_str:
+                existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
+                
+                if existing_cart_item:
+                    if existing_cart_item["qty"] + order_qty > max_available:
+                        st.error(f"Cannot add more. Max available stock is {max_available}.")
+                    else:
+                        existing_cart_item["qty"] += order_qty
+                        st.success(f"Updated '{item_data['name']}' quantity!")
+                        st.rerun()
+                else:
+                    st.session_state["cart"].append({
+                        "sku": item_data["sku"],
+                        "name": item_data["name"],
+                        "qty": order_qty,
+                        "price": float(item_data["price"]),
+                        "max_stock": max_available
+                    })
+                    st.success(f"Added '{item_data['name']}' to cart!")
+                    st.rerun()
+
+    # --- RIGHT COLUMN: CART WITH DIRECT QTY EDITING ---
     with col_cart:
         st.markdown("##### Current Cart")
         
         if st.session_state["cart"]:
             # Table Header
-            c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 2, 1.5, 1.5])
+            c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
             c_name.caption("**Name**")
-            c_qty.caption("**Qty Adjustment**")
+            c_qty.caption("**Qty (Typeable)**")
             c_price.caption("**Unit Price**")
             c_subtotal.caption("**Subtotal**")
             st.divider()
 
             grand_total = 0.0
+            items_to_remove = []
 
-            # Dynamic Cart Rows with (-) (+) buttons
+            # Dynamic Cart Rows with Editable Number Inputs
             for idx, item in enumerate(st.session_state["cart"]):
                 subtotal = item["qty"] * item["price"]
                 grand_total += subtotal
 
-                row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 2, 1.5, 1.5])
+                row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
                 
                 row_name.write(item["name"])
                 
-                # Inline Quantity Adjuster: (-) QTY (+)
-                q_minus, q_val, q_plus = row_qty.columns([1, 1.2, 1])
-                
-                if q_minus.button("➖", key=f"btn_minus_{idx}"):
-                    item["qty"] -= 1
-                    if item["qty"] <= 0:
-                        st.session_state["cart"].pop(idx)
-                    st.rerun()
+                # Direct Manual Input for Quantity
+                new_qty = row_qty.number_input(
+                    label=f"qty_{idx}",
+                    min_value=0,
+                    max_value=int(item["max_stock"]),
+                    value=int(item["qty"]),
+                    step=1,
+                    label_visibility="collapsed",
+                    key=f"cart_qty_{idx}"
+                )
 
-                q_val.markdown(f"<div style='text-align: center; font-weight: bold;'>{item['qty']}</div>", unsafe_allow_html=True)
-
-                if q_plus.button("➕", key=f"btn_plus_{idx}"):
-                    if item["qty"] + 1 <= item["max_stock"]:
-                        item["qty"] += 1
-                        st.rerun()
+                # Track if quantity was updated manually
+                if new_qty != item["qty"]:
+                    if new_qty == 0:
+                        items_to_remove.append(idx)
                     else:
-                        st.toast(f"Max stock limit reached ({item['max_stock']})")
+                        item["qty"] = new_qty
+                    st.rerun()
 
                 row_price.write(f"₱{item['price']:.2f}")
                 row_subtotal.write(f"**₱{subtotal:,.2f}**")
+
+            # Remove items whose quantity was set to 0
+            if items_to_remove:
+                for idx in sorted(items_to_remove, reverse=True):
+                    st.session_state["cart"].pop(idx)
+                st.rerun()
 
             st.divider()
             st.markdown(f"### **Total:** ₱{grand_total:,.2f}")
