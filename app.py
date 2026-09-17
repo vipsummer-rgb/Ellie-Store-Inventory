@@ -11,7 +11,7 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     gc = gspread.service_account_from_dict(credentials)
-    sh = gc.open("Inventory DB")
+    sh = gc.open("Inventory DB - TEST")
     
     # Ensure audit log worksheet exists
     try:
