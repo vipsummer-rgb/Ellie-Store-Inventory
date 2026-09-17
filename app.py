@@ -3,17 +3,32 @@ import gspread
 import pandas as pd
 from datetime import datetime
 
-# Page Configuration
-st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout="wide")
+# ==========================================
+# 1. PAGE & STREAMLIT CONFIGURATION
+# ==========================================
+st.set_page_config(
+    page_title="Ellie Store Inventory", 
+    page_icon="📦", 
+    layout="wide"
+)
 
-# --- GOOGLE SHEETS CONNECTION ---
+# ==========================================
+# 2. GOOGLE SHEETS CONNECTION & SETUP
+# ==========================================
 @st.cache_resource
 def get_gsheet():
+    """
+    Connects to Google Sheets using service account secrets stored in Streamlit.
+    Opens the primary inventory sheet and ensures the audit log sheet exists.
+    """
+    # Load credentials directly from Streamlit secrets
     credentials = dict(st.secrets["gcp_service_account"])
     gc = gspread.service_account_from_dict(credentials)
+    
+    # Open the primary spreadsheet
     sh = gc.open("Inventory DB - TEST")
     
-    # Ensure audit log worksheet exists
+    # Retrieve or create the 'Logs' worksheet for activity tracking
     try:
         log_sheet = sh.worksheet("Logs")
     except gspread.exceptions.WorksheetNotFound:
@@ -22,14 +37,40 @@ def get_gsheet():
         
     return sh.sheet1, log_sheet
 
+# Initialize Google Sheets connections
 sheet, log_sheet = get_gsheet()
 
-# --- AUDIT LOG FUNCTION ---
+# ==========================================
+# 3. HELPER FUNCTIONS (LOGGING & DATA FETCHING)
+# ==========================================
 def log_action(user: str, action: str, details: str):
+    """Appends a new event row to the Google Sheets Logs tab."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_sheet.append_row([timestamp, user, action, details])
 
-# --- USER AUTHENTICATION ---
+def load_data():
+    """
+    Fetches raw records directly from Google Sheets and converts them into
+    a clean pandas DataFrame with normalized string columns.
+    """
+    records = sheet.get_all_records()
+    if not records:
+        return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price"])
+    
+    df_loaded = pd.DataFrame(records)
+    # Convert string columns to explicit string types to avoid type mismatches
+    for col in ["sku", "name"]:
+        if col in df_loaded.columns:
+            df_loaded[col] = df_loaded[col].astype(str)
+            
+    return df_loaded
+
+# Load initial data frame
+df = load_data()
+
+# ==========================================
+# 4. USER AUTHENTICATION & SESSION MANAGEMENT
+# ==========================================
 USERS = st.secrets.get("users", {
     "admin": "admin123",
     "staff1": "ellie2026",
@@ -41,6 +82,7 @@ if "authenticated" not in st.session_state:
     st.session_state["username"] = ""
 
 def login():
+    """Renders the login modal form."""
     st.title("🔒 Ellie Store Login")
     with st.form("login_form"):
         username = st.text_input("Username").strip()
@@ -57,20 +99,14 @@ def login():
             else:
                 st.error("Invalid username or password.")
 
+# Halt execution if user is not authenticated
 if not st.session_state["authenticated"]:
     login()
     st.stop()
 
-# --- DATA LOADING ---
-def load_data():
-    records = sheet.get_all_records()
-    if not records:
-        return pd.DataFrame(columns=["id", "sku", "name", "quantity", "price"])
-    return pd.DataFrame(records)
-
-df = load_data()
-
-# --- HEADER & NAVIGATION ---
+# ==========================================
+# 5. SIDEBAR & NAVIGATION HEADER
+# ==========================================
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Log Out"):
     current_user = st.session_state["username"]
@@ -82,10 +118,11 @@ if st.sidebar.button("Log Out"):
 st.title("📦 Ellie Store Inventory")
 st.caption(f"Logged in as **{st.session_state['username']}** | Connected to Google Sheets")
 
+# Tab Navigation Setup
 tab_pos, tab_inventory = st.tabs(["🛒 Orders / POS", "📦 Inventory Management"])
 
 # ==========================================
-# TAB 1: ORDERS / POS
+# 6. TAB 1: POINT OF SALE (POS) SYSTEM
 # ==========================================
 with tab_pos:
     st.subheader("🛒 New Customer Order")
@@ -95,14 +132,13 @@ with tab_pos:
 
     col_catalog, col_cart = st.columns([1, 1.3])
 
-    # --- LEFT COLUMN: ALWAYS-VISIBLE PRODUCT SELECTION ---
+    # --- LEFT COLUMN: PRODUCT SELECTION ---
     with col_catalog:
         st.markdown("##### Add Item to Cart")
         
-        # 1. Order Name
-        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Name", key="pos_order_name").strip()
+        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Customer Name", key="pos_order_name").strip()
         
-        # Build dropdown options (Product name + Stock level only)
+        # Filter products to display only available stock
         in_stock_df = df[df["quantity"] > 0] if not df.empty else pd.DataFrame()
         
         if not in_stock_df.empty:
@@ -112,7 +148,6 @@ with tab_pos:
         else:
             item_options = []
 
-        # 2. Product Dropdown
         selected_item_str = st.selectbox(
             "Product", 
             options=item_options, 
@@ -122,8 +157,8 @@ with tab_pos:
             key="pos_item_select"
         )
 
-        # 3. Quantity Input (Always visible)
         max_available = 9999
+        item_data = None
         if selected_item_str and not in_stock_df.empty:
             selected_idx = item_options.index(selected_item_str)
             item_data = in_stock_df.iloc[selected_idx]
@@ -139,9 +174,8 @@ with tab_pos:
             key="pos_qty_input"
         )
         
-        # 4. Add to Cart Button (Always visible)
         if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not selected_item_str):
-            if selected_item_str:
+            if selected_item_str and item_data is not None:
                 existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
                 
                 if existing_cart_item:
@@ -153,8 +187,8 @@ with tab_pos:
                         st.rerun()
                 else:
                     st.session_state["cart"].append({
-                        "sku": item_data["sku"],
-                        "name": item_data["name"],
+                        "sku": str(item_data["sku"]),
+                        "name": str(item_data["name"]),
                         "qty": order_qty,
                         "price": float(item_data["price"]),
                         "max_stock": max_available
@@ -162,12 +196,11 @@ with tab_pos:
                     st.success(f"Added '{item_data['name']}' to cart!")
                     st.rerun()
 
-    # --- RIGHT COLUMN: CART WITH DIRECT QTY EDITING ---
+    # --- RIGHT COLUMN: ACTIVE CART & CHECKOUT ---
     with col_cart:
         st.markdown("##### Current Cart")
         
         if st.session_state["cart"]:
-            # Table Header
             c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
             c_name.caption("**Name**")
             c_qty.caption("**Qty**")
@@ -178,16 +211,13 @@ with tab_pos:
             grand_total = 0.0
             items_to_remove = []
 
-            # Dynamic Cart Rows with Editable Number Inputs
             for idx, item in enumerate(st.session_state["cart"]):
                 subtotal = item["qty"] * item["price"]
                 grand_total += subtotal
 
                 row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
-                
                 row_name.write(item["name"])
                 
-                # Direct Manual Input for Quantity
                 new_qty = row_qty.number_input(
                     label=f"qty_{idx}",
                     min_value=0,
@@ -198,7 +228,6 @@ with tab_pos:
                     key=f"cart_qty_{idx}"
                 )
 
-                # Track if quantity was updated manually
                 if new_qty != item["qty"]:
                     if new_qty == 0:
                         items_to_remove.append(idx)
@@ -209,7 +238,7 @@ with tab_pos:
                 row_price.write(f"₱{item['price']:.2f}")
                 row_subtotal.write(f"**₱{subtotal:,.2f}**")
 
-            # Remove items whose quantity was set to 0
+            # Remove items if quantity was adjusted to 0
             if items_to_remove:
                 for idx in sorted(items_to_remove, reverse=True):
                     st.session_state["cart"].pop(idx)
@@ -227,19 +256,20 @@ with tab_pos:
 
             with col_checkout:
                 if st.button("✅ Complete Order", type="primary", use_container_width=True):
-                    # Deduct quantities in Google Sheets
+                    # Process cart item stock deductions directly in Google Sheets
+                    fresh_df = load_data()
                     for item in st.session_state["cart"]:
-                        match = df[df["name"] == item["name"]]
+                        match = fresh_df[fresh_df["name"].astype(str).str.strip().str.lower() == str(item["name"]).strip().lower()]
                         if not match.empty:
                             row_idx = match.index[0]
-                            current_qty = int(df.iloc[row_idx]["quantity"])
+                            current_qty = int(fresh_df.iloc[row_idx]["quantity"])
                             new_qty = current_qty - item["qty"]
                             
                             row_number = row_idx + 2
-                            qty_col_idx = df.columns.get_loc("quantity") + 1
+                            qty_col_idx = fresh_df.columns.get_loc("quantity") + 1
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    # Construct audit log string
+                    # Log activity and reset state
                     order_ref = f" [Order Ref: {order_name}]" if order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
@@ -256,12 +286,12 @@ with tab_pos:
             st.info("Cart is empty. Select a product on the left to start.")
 
 # ==========================================
-# TAB 2: INVENTORY MANAGEMENT
+# 7. TAB 2: INVENTORY MANAGEMENT
 # ==========================================
 with tab_inventory:
-    # --- SECTION 1: ADD / REMOVE STOCK ITEMS ---
     col_add, col_remove = st.columns(2)
 
+    # Input state flags
     if "clear_add_flag" not in st.session_state:
         st.session_state["clear_add_flag"] = False
     if "clear_remove_flag" not in st.session_state:
@@ -273,9 +303,9 @@ with tab_inventory:
     def reset_remove_inputs():
         st.session_state["clear_remove_flag"] = True
 
-    # --- ADD STOCK SECTION ---
+    # --- SECTION A: ADD / CREATE STOCK ---
     with col_add:
-        with st.expander("➕ Add Stock Item", expanded=False):
+        with st.expander("➕ Add Stock Item", expanded=True):
             if st.session_state["clear_add_flag"]:
                 st.session_state["add_name_input"] = ""
                 st.session_state["add_sku_input"] = ""
@@ -288,88 +318,76 @@ with tab_inventory:
 
             is_new_item = st.checkbox("New Product (Not in list yet)", key="chk_is_new")
             
-            existing_names = sorted(df["name"].dropna().unique().tolist()) if not df.empty else []
-            existing_skus = sorted([str(s) for s in df["sku"].dropna().unique() if str(s).upper() != "N/A"]) if not df.empty else []
+            # Fetch options for existing names and SKUs
+            existing_names = sorted(list(set([str(n).strip() for n in df["name"].dropna().tolist() if str(n).strip() != ""]))) if not df.empty else []
+            existing_skus = sorted(list(set([str(s).strip().upper() for s in df["sku"].dropna().tolist() if str(s).strip().upper() not in ["N/A", ""]]))) if not df.empty else []
+
+            add_name, add_sku, add_price = "", "", 0.0
 
             if is_new_item or not existing_names:
                 add_name = st.text_input("Item Name", key="add_name_input").strip()
                 add_sku = st.text_input("SKU Code (Optional)", key="add_sku_input").strip().upper()
                 add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
             else:
-                add_name = st.selectbox(
-                    "Search & Select Item Name", 
-                    options=existing_names, 
-                    index=None, 
-                    placeholder="Type or select item name...",
-                    key="add_name_select"
-                )
-                
-                selected_sku_type = st.selectbox(
-                    "Search & Select Existing SKU (Optional)",
-                    options=existing_skus,
-                    index=None,
-                    placeholder="Type or select existing SKU...",
-                    key="add_sku_select"
-                )
+                selected_name = st.selectbox("Search & Select Item Name", options=existing_names, index=None, placeholder="Type or select item...", key="add_name_select")
+                selected_sku_type = st.selectbox("Search & Select Existing SKU (Optional)", options=existing_skus, index=None, placeholder="Type or select SKU...", key="add_sku_select")
 
-                if add_name:
-                    selected_row = df[df["name"] == add_name].iloc[0]
-                    add_sku = selected_sku_type if selected_sku_type else str(selected_row["sku"]).upper()
-                    add_price = float(selected_row["price"])
-                    st.caption(f"Current Price: ₱{add_price:.2f} | SKU: {add_sku}")
-                elif selected_sku_type:
-                    selected_row = df[df["sku"].astype(str).str.upper() == selected_sku_type.upper()].iloc[0]
-                    add_name = selected_row["name"]
-                    add_sku = selected_sku_type.upper()
-                    add_price = float(selected_row["price"])
-                    st.caption(f"Selected Item: {add_name} | Price: ₱{add_price:.2f}")
-                else:
-                    add_sku = ""
-                    add_price = 0.0
+                if selected_name:
+                    add_name = selected_name
+                    name_mask = df["name"].astype(str).str.strip().str.lower() == selected_name.lower()
+                    if name_mask.any():
+                        selected_row = df[name_mask].iloc[0]
+                        add_sku = selected_sku_type if selected_sku_type else str(selected_row["sku"]).upper()
+                        add_price = float(selected_row["price"])
+                        st.caption(f"Current Price: ₱{add_price:.2f} | SKU: {add_sku}")
 
             add_quantity = st.number_input("Quantity to Add", min_value=1, step=1, key="add_qty_input")
-            
-            if st.button("Save Stock", key="btn_save_new"):
-                if add_name:
-                    sku_val = add_sku if add_sku else "N/A"
-                    
-                    name_match = df[df["name"].astype(str).str.lower() == add_name.lower()]
-                    sku_match = df[(df["sku"].astype(str).str.upper() == sku_val.upper()) & (sku_val.upper() != "N/A")]
-                    
-                    existing_match = name_match if not name_match.empty else sku_match
-                    
-                    if not existing_match.empty:
-                        row_idx = existing_match.index[0]
-                        current_qty = int(df.iloc[row_idx]["quantity"])
-                        new_qty = current_qty + add_quantity
-                        
-                        row_number = row_idx + 2
-                        qty_col_idx = df.columns.get_loc("quantity") + 1
-                        sheet.update_cell(row_number, qty_col_idx, new_qty)
-                        
-                        log_action(
-                            st.session_state["username"], 
-                            "ADD STOCK", 
-                            f"Added {add_quantity} to existing '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})"
-                        )
-                        st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
-                    else:
-                        new_id = len(df) + 1
-                        sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
-                        
-                        log_action(
-                            st.session_state["username"], 
-                            "ADD ITEM", 
-                            f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
-                        )
-                        st.success(f"Added new item '{add_name}' successfully!")
-                    
-                    reset_add_inputs()
-                    st.rerun()
-                else:
-                    st.error("Please select or enter an Item Name first.")
 
-    # --- REMOVE STOCK SECTION ---
+            if st.button("Save Stock", key="btn_save_new"):
+                if add_name and add_name.strip() != "":
+                    try:
+                        sku_val = add_sku.strip() if add_sku.strip() else "N/A"
+                        target_name = add_name.strip().lower()
+                        target_sku = sku_val.upper()
+
+                        # Re-read fresh data before making modifications
+                        fresh_df = load_data()
+
+                        name_match = fresh_df[fresh_df["name"].astype(str).str.strip().str.lower() == target_name] if not fresh_df.empty else pd.DataFrame()
+                        sku_match = fresh_df[(fresh_df["sku"].astype(str).str.strip().str.upper() == target_sku) & (target_sku != "N/A")] if not fresh_df.empty else pd.DataFrame()
+                        
+                        existing_match = name_match if not name_match.empty else sku_match
+                        
+                        if not existing_match.empty:
+                            # Update existing row
+                            row_idx = existing_match.index[0]
+                            current_qty = int(fresh_df.iloc[row_idx]["quantity"])
+                            new_qty = current_qty + add_quantity
+                            
+                            row_number = row_idx + 2
+                            qty_col_idx = fresh_df.columns.get_loc("quantity") + 1
+                            sheet.update_cell(row_number, qty_col_idx, new_qty)
+
+                            log_action(st.session_state["username"], "ADD STOCK", f"Added {add_quantity} to '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})")
+                            st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
+                        else:
+                            # Insert completely new row
+                            next_row = len(fresh_df) + 2
+                            new_id = len(fresh_df) + 1
+                            new_row_data = [[new_id, sku_val, add_name, add_quantity, add_price]]
+                            
+                            sheet.update(f"A{next_row}:E{next_row}", new_row_data)
+                            log_action(st.session_state["username"], "ADD ITEM", f"Created new item SKU: {sku_val}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}")
+                            st.success(f"Added new item '{add_name}' successfully!")
+                        
+                        reset_add_inputs()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error saving stock: {e}")
+                else:
+                    st.error("Please select or enter an Item Name before saving.")
+
+    # --- SECTION B: REMOVE / DEDUCT STOCK ---
     with col_remove:
         with st.expander("➖ Remove / Deduct Stock", expanded=False):
             if not df.empty:
@@ -380,14 +398,7 @@ with tab_inventory:
                     st.session_state["clear_remove_flag"] = False
 
                 item_options = df.apply(lambda r: f"{r['name']} - {r['sku']} (Current: {r['quantity']})", axis=1).tolist()
-                selected_item_str = st.selectbox(
-                    "Select Item to Deduct", 
-                    options=item_options, 
-                    index=None,
-                    placeholder="Type or select an item...",
-                    key="remove_select_input"
-                )
-                
+                selected_item_str = st.selectbox("Select Item to Deduct", options=item_options, index=None, placeholder="Type or select an item...", key="remove_select_input")
                 deduct_qty = st.number_input("Quantity to Remove", min_value=1, step=1, key="remove_qty_input")
                 reason = st.text_input("Reason (Optional)", placeholder="e.g., Sold, Damaged, Expired", key="remove_reason_input")
                 
@@ -396,7 +407,7 @@ with tab_inventory:
                         selected_idx = item_options.index(selected_item_str)
                         row_data = df.iloc[selected_idx]
                         current_qty = int(row_data["quantity"])
-                        item_name = row_data["name"]
+                        item_name = str(row_data["name"])
                         
                         if deduct_qty > current_qty:
                             st.error(f"Cannot remove {deduct_qty}. Only {current_qty} in stock!")
@@ -408,13 +419,8 @@ with tab_inventory:
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                             reason_str = f" | Reason: {reason}" if reason else ""
                             
-                            log_action(
-                                st.session_state["username"],
-                                "REMOVE STOCK",
-                                f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}"
-                            )
+                            log_action(st.session_state["username"], "REMOVE STOCK", f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}")
                             st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
-                            
                             reset_remove_inputs()
                             st.rerun()
                     else:
@@ -422,11 +428,11 @@ with tab_inventory:
             else:
                 st.info("No items in inventory to remove.")
 
-    # --- SECTION 2: EDIT & MANAGE INVENTORY ---
+    # --- SECTION C: LIVE DATA EDITOR ---
     st.subheader("📋 Current Stock Levels")
 
-    @st.fragment(run_every=30)
     def render_live_inventory():
+        """Renders an interactive spreadsheet editor directly inside Streamlit."""
         df_live = load_data()
         
         if not df_live.empty:
@@ -447,7 +453,7 @@ with tab_inventory:
                 if changes:
                     for row_idx, updated_cols in changes.items():
                         row_number = row_idx + 2
-                        item_name = df_live.iloc[row_idx]["name"]
+                        item_name = str(df_live.iloc[row_idx]["name"])
                         
                         for col_name, new_val in updated_cols.items():
                             col_idx = df_live.columns.get_loc(col_name) + 1
@@ -469,12 +475,13 @@ with tab_inventory:
 
     render_live_inventory()
 
-    # --- SECTION 3: AUDIT LOG VIEWER (ADMIN ONLY) ---
+    # --- SECTION D: AUDIT LOGS (ADMIN ONLY) ---
     if st.session_state["username"] == "admin":
         st.divider()
         
         @st.fragment(run_every=30)
         def render_live_logs():
+            """Fragment function that automatically polls the Logs sheet every 30 seconds."""
             with st.expander("📜 View Audit Log (Live - Auto Refreshes Every 30s)", expanded=True):
                 logs = log_sheet.get_all_records()
                 if logs:
