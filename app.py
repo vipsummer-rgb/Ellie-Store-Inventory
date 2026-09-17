@@ -65,11 +65,8 @@ df = load_data()
 # ==========================================
 # 4. USER AUTHENTICATION
 # ==========================================
-USERS = st.secrets.get("users", {
-    "admin": "admin123",
-    "staff1": "ellie2026",
-    "staff2": "ellie2026"
-})
+
+USERS = dict(st.secrets.get("users", {}))
 
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
