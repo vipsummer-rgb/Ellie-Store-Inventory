@@ -239,16 +239,26 @@ else:
     st.info("No items found in your inventory sheet.")
 
 # --- SECTION 3: AUDIT LOG VIEWER (ADMIN ONLY) ---
+# --- SECTION 3: AUDIT LOG VIEWER (ADMIN ONLY) ---
 if st.session_state["username"] == "admin":
     st.divider()
-    with st.expander("📜 View Audit Log (Admin Only)", expanded=False):
-        logs = log_sheet.get_all_records()
-        if logs:
-            log_df = pd.DataFrame(logs)
-            st.dataframe(
-                log_df.sort_values(by="Timestamp", ascending=False), 
-                use_container_width=True, 
-                hide_index=True
-            )
-        else:
-            st.info("No activity recorded yet.")
+    
+    # Auto-refresh log container every 30 seconds (30000 ms)
+    @st.fragment(run_every=30)
+    def render_live_logs():
+        with st.expander("📜 View Audit Log (Live - Auto Refreshes Every 30s)", expanded=True):
+            # Fetch fresh data from Google Sheets
+            logs = log_sheet.get_all_records()
+            if logs:
+                log_df = pd.DataFrame(logs)
+                st.dataframe(
+                    log_df.sort_values(by="Timestamp", ascending=False), 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+            else:
+                st.info("No activity recorded yet.")
+            
+            st.caption("🔄 Auto-sync active. Checking for new staff updates every 30 seconds...")
+
+    render_live_logs()
