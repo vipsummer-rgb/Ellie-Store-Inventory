@@ -243,6 +243,7 @@ with tab_pos:
                         f"Items: [{order_summary}]{order_ref} | Total: ₱{grand_total:,.2f}"
                     )
                     
+                    st.cache_data.clear()
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
                     st.rerun()
@@ -350,18 +351,21 @@ with tab_inventory:
                         target_name = add_name.strip().lower()
                         target_sku = sku_val.upper()
 
-                        name_match = df[df["name"].astype(str).str.strip().str.lower() == target_name] if not df.empty else pd.DataFrame()
-                        sku_match = df[(df["sku"].astype(str).str.strip().str.upper() == target_sku) & (target_sku != "N/A")] if not df.empty else pd.DataFrame()
+                        # Read freshest state directly from sheet to avoid stale DataFrame indices
+                        fresh_df = load_data()
+
+                        name_match = fresh_df[fresh_df["name"].astype(str).str.strip().str.lower() == target_name] if not fresh_df.empty else pd.DataFrame()
+                        sku_match = fresh_df[(fresh_df["sku"].astype(str).str.strip().str.upper() == target_sku) & (target_sku != "N/A")] if not fresh_df.empty else pd.DataFrame()
                         
                         existing_match = name_match if not name_match.empty else sku_match
                         
                         if not existing_match.empty:
                             row_idx = existing_match.index[0]
-                            current_qty = int(df.iloc[row_idx]["quantity"])
+                            current_qty = int(fresh_df.iloc[row_idx]["quantity"])
                             new_qty = current_qty + add_quantity
                             
                             row_number = row_idx + 2
-                            qty_col_idx = df.columns.get_loc("quantity") + 1
+                            qty_col_idx = fresh_df.columns.get_loc("quantity") + 1
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
 
                             log_action(
@@ -371,9 +375,8 @@ with tab_inventory:
                             )
                             st.success(f"Added {add_quantity} to existing item '{add_name}'. New total: {new_qty}")
                         else:
-                            # Explicitly write new row to exact row index to avoid append_row positioning errors
-                            next_row = len(df) + 2
-                            new_id = len(df) + 1
+                            next_row = len(fresh_df) + 2
+                            new_id = len(fresh_df) + 1
                             new_row_data = [[new_id, sku_val, add_name, add_quantity, add_price]]
                             
                             sheet.update(f"A{next_row}:E{next_row}", new_row_data)
@@ -385,6 +388,7 @@ with tab_inventory:
                             )
                             st.success(f"Added new item '{add_name}' successfully!")
                         
+                        st.cache_data.clear()
                         reset_add_inputs()
                         st.rerun()
                     except Exception as e:
@@ -436,6 +440,7 @@ with tab_inventory:
                                 "REMOVE STOCK",
                                 f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}"
                             )
+                            st.cache_data.clear()
                             st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
                             
                             reset_remove_inputs()
@@ -448,7 +453,6 @@ with tab_inventory:
     # --- EDIT & MANAGE INVENTORY ---
     st.subheader("📋 Current Stock Levels")
 
-    @st.fragment(run_every=30)
     def render_live_inventory():
         df_live = load_data()
         
@@ -483,6 +487,7 @@ with tab_inventory:
                                 f"Changed '{item_name}' ({col_name}): {old_val} ➔ {new_val}"
                             )
                     
+                    st.cache_data.clear()
                     st.success("All edits saved and logged successfully!")
                     st.rerun()
                 else:
