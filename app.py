@@ -124,6 +124,16 @@ with tab_pos:
     if "cart" not in st.session_state:
         st.session_state["cart"] = []
 
+    # Flag to trigger input field reset after adding to cart
+    if "clear_pos_flag" not in st.session_state:
+        st.session_state["clear_pos_flag"] = False
+
+    if st.session_state["clear_pos_flag"]:
+        st.session_state["pos_order_name"] = ""
+        st.session_state["pos_item_select"] = None
+        st.session_state["pos_qty_input"] = 0  # Set to 0 as requested
+        st.session_state["clear_pos_flag"] = False
+
     col_catalog, col_cart = st.columns([1, 1.3])
 
     with col_catalog:
@@ -149,27 +159,37 @@ with tab_pos:
             item_data = in_stock_df.iloc[selected_idx]
             max_available = int(item_data["quantity"])
 
-        order_qty = st.number_input("Qty", min_value=1, max_value=max_available if selected_item_str else 1, value=1, step=1, disabled=not selected_item_str, key="pos_qty_input")
+        # Default min_value set to 0 so it can hold 0 when cleared
+        order_qty = st.number_input(
+            "Qty", 
+            min_value=0, 
+            max_value=max_available if selected_item_str else 1, 
+            key="pos_qty_input"
+        )
         
-        if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not selected_item_str):
-            if selected_item_str and item_data is not None:
-                existing_cart_item = next((item for item in st.session_state["cart"] if item["name"] == item_data["name"]), None)
+        # Disable button if no product selected or quantity is 0
+        can_add = selected_item_str is not None and order_qty > 0
+
+        if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not can_add):
+            if selected_item_str and item_data is not None and order_qty > 0:
+                existing_cart_item = next((item for item in st.session_state["cart"] if item["name"].strip().upper() == str(item_data["name"]).strip().upper()), None)
+                
                 if existing_cart_item:
                     if existing_cart_item["qty"] + order_qty > max_available:
                         st.error(f"Cannot add more. Max stock is {max_available}.")
                     else:
                         existing_cart_item["qty"] += order_qty
-                        st.success(f"Updated '{item_data['name']}' quantity!")
+                        st.session_state["clear_pos_flag"] = True
                         st.rerun()
                 else:
                     st.session_state["cart"].append({
-                        "sku": str(item_data["sku"]),
-                        "name": str(item_data["name"]),
+                        "sku": str(item_data["sku"]).upper(),
+                        "name": str(item_data["name"]).upper(),
                         "qty": order_qty,
                         "price": float(item_data["price"]),
                         "max_stock": max_available
                     })
-                    st.success(f"Added '{item_data['name']}' to cart!")
+                    st.session_state["clear_pos_flag"] = True
                     st.rerun()
 
     with col_cart:
@@ -242,6 +262,7 @@ with tab_pos:
                     
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
+                    st.session_state["clear_pos_flag"] = True
                     st.rerun()
         else:
             st.info("Cart is empty.")
