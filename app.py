@@ -87,43 +87,43 @@ st.divider()
 # --- SECTION 1: ADD / REMOVE STOCK ITEMS ---
 col_add, col_remove = st.columns(2)
 
+# --- ADD STOCK SECTION ---
 with col_add:
     with st.expander("➕ Add New Stock Item", expanded=False):
-        with st.form("add_item_form", clear_on_submit=True):
-            sku = st.text_input("SKU Code")
-            name = st.text_input("Item Name")
-            quantity = st.number_input("Quantity", min_value=1, step=1)
-            price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f")
-            
-            submitted = st.form_submit_button("Save New Item")
-            if submitted:
-                if sku and name:
-                    new_id = len(df) + 1
-                    sheet.append_row([new_id, sku, name, quantity, price])
-                    log_action(
-                        st.session_state["username"], 
-                        "ADD ITEM", 
-                        f"Added SKU: {sku}, Name: {name}, Qty: {quantity}, Price: ₱{price}"
-                    )
-                    st.success(f"Added '{name}' successfully!")
-                    st.rerun()
-                else:
-                    st.error("Please fill out both SKU and Item Name.")
+        # Regular inputs (pressing Enter will NOT submit now)
+        add_sku = st.text_input("SKU Code", key="add_sku_input")
+        add_name = st.text_input("Item Name", key="add_name_input")
+        add_quantity = st.number_input("Quantity", min_value=1, step=1, key="add_qty_input")
+        add_price = st.number_input("Price (₱)", min_value=0.0, step=0.5, format="%.2f", key="add_price_input")
+        
+        # Action requires clicking this button explicitly
+        if st.button("Save New Item", key="btn_save_new"):
+            if add_sku and add_name:
+                new_id = len(df) + 1
+                sheet.append_row([new_id, add_sku, add_name, add_quantity, add_price])
+                log_action(
+                    st.session_state["username"], 
+                    "ADD ITEM", 
+                    f"Added SKU: {add_sku}, Name: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}"
+                )
+                st.success(f"Added '{add_name}' successfully!")
+                st.rerun()
+            else:
+                st.error("Please fill out both SKU and Item Name.")
 
+# --- REMOVE STOCK SECTION ---
 with col_remove:
     with st.expander("➖ Remove / Deduct Stock", expanded=False):
         if not df.empty:
-            with st.form("remove_item_form", clear_on_submit=True):
-                # Dropdown menu to pick existing item
-                item_options = df.apply(lambda r: f"{r['sku']} - {r['name']} (Current: {r['quantity']})", axis=1).tolist()
-                selected_item_str = st.selectbox("Select Item to Deduct", item_options)
-                
-                deduct_qty = st.number_input("Quantity to Remove", min_value=1, step=1)
-                reason = st.text_input("Reason (Optional)", placeholder="e.g., Sold, Damaged, Expired")
-                
-                remove_submitted = st.form_submit_button("Deduct Stock")
-                if remove_submitted and selected_item_str:
-                    # Find selected row index
+            item_options = df.apply(lambda r: f"{r['sku']} - {r['name']} (Current: {r['quantity']})", axis=1).tolist()
+            selected_item_str = st.selectbox("Select Item to Deduct", item_options, key="remove_select_input")
+            
+            deduct_qty = st.number_input("Quantity to Remove", min_value=1, step=1, key="remove_qty_input")
+            reason = st.text_input("Reason (Optional)", placeholder="e.g., Sold, Damaged, Expired", key="remove_reason_input")
+            
+            # Action requires clicking this button explicitly
+            if st.button("Deduct Stock", key="btn_deduct_stock"):
+                if selected_item_str:
                     selected_idx = item_options.index(selected_item_str)
                     row_data = df.iloc[selected_idx]
                     current_qty = int(row_data["quantity"])
@@ -133,13 +133,11 @@ with col_remove:
                         st.error(f"Cannot remove {deduct_qty}. Only {current_qty} in stock!")
                     else:
                         new_qty = current_qty - deduct_qty
-                        row_number = selected_idx + 2  # Row index + header offset
+                        row_number = selected_idx + 2
                         qty_col_idx = df.columns.get_loc("quantity") + 1
                         
-                        # Update quantity in Google Sheets
                         sheet.update_cell(row_number, qty_col_idx, new_qty)
                         
-                        # Log the audit event
                         reason_str = f" | Reason: {reason}" if reason else ""
                         log_action(
                             st.session_state["username"],
