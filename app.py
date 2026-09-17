@@ -256,13 +256,12 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    # Read the order name input from session state
-                    order_name_val = st.session_state.get("pos_order_name", "").strip()
-                    order_ref = f"Order Name: {order_name_val.upper()} | " if order_name_val else ""
+                    # Use local order_name variable directly from the UI input field
+                    order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
                     
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
-                    # Format log details to prominent order name
+                    # Log action with the order reference
                     log_action(
                         st.session_state["username"], 
                         "ORDER COMPLETED", 
@@ -271,6 +270,7 @@ with tab_pos:
                     
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
+                    st.session_state["pos_order_name"] = ""  # <-- Clear order name here after checkout
                     st.session_state["clear_pos_flag"] = True
                     st.rerun()
         else:
