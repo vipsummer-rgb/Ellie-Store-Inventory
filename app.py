@@ -358,11 +358,22 @@ with tab_inventory:
 
             add_quantity = st.number_input("Quantity to Add", min_value=1, step=1, key="add_qty_input")
 
-            # Product Photo Capture / Upload
+            # Product Photo Capture / Upload (Triggered on Demand)
             st.markdown("**Product Photo (Optional)**")
-            cam_photo = st.camera_input("Take Photo via Camera", key="add_cam_photo")
-            uploaded_photo = st.file_uploader("Or Upload Image", type=["jpg", "jpeg", "png"], key="add_file_photo")
-            photo_file = cam_photo if cam_photo else uploaded_photo
+            
+            photo_file = None
+            
+            # Toggle/Button to activate camera feed
+            use_camera = st.checkbox("📷 Use Camera to Capture Photo", key="add_use_cam")
+            
+            if use_camera:
+                cam_photo = st.camera_input("Take Photo", key="add_cam_photo")
+                if cam_photo:
+                    photo_file = cam_photo
+            else:
+                uploaded_photo = st.file_uploader("Upload Image File", type=["jpg", "jpeg", "png"], key="add_file_photo")
+                if uploaded_photo:
+                    photo_file = uploaded_photo
 
             if st.button("Save Stock", key="btn_save_new"):
                 if add_name:
