@@ -179,6 +179,19 @@ tab_pos, tab_inventory, tab_history = st.tabs([
     "📜 Transaction History"
 ])
 
+# --- SIDEBAR AUDIT LOG (ADMIN ONLY) ---
+if st.session_state["username"] == "admin":
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📜 View Audit Log", expanded=False):
+        logs = log_sheet.get_all_records()
+        if logs:
+            df_logs = pd.DataFrame(logs)
+            if not df_logs.empty and "Timestamp" in df_logs.columns:
+                df_logs = df_logs.sort_values(by="Timestamp", ascending=False)
+            st.dataframe(df_logs, use_container_width=True, hide_index=True)
+        else:
+            st.write("No logs available.")
+
 # ==========================================
 # 6. TAB 1: ORDERS / POS
 # ==========================================
@@ -465,12 +478,7 @@ with tab_inventory:
         st.info("No items found in your inventory sheet.")
 
     # --- AUDIT LOGS ---
-    if st.session_state["username"] == "admin":
-        st.divider()
-        with st.expander("📜 View Audit Log", expanded=True):
-            logs = log_sheet.get_all_records()
-            if logs:
-                st.dataframe(pd.DataFrame(logs).sort_values(by="Timestamp", ascending=False), use_container_width=True, hide_index=True)
+
 
 # ==========================================
 # 8. TAB 3: TRANSACTION HISTORY
