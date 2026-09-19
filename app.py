@@ -54,6 +54,10 @@ def log_action(user: str, action: str, details: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_sheet.append_row([timestamp, user, action, details])
 
+@st.cache_data(ttl=30)
+def load_logs():
+    return log_sheet.get_all_records()
+
 def get_quantity_col_idx(headers):
     """Finds 1-based index for the quantity column in Google Sheets."""
     headers_clean = [str(h).strip().lower() for h in headers]
@@ -78,9 +82,13 @@ def load_data():
 
 def get_transaction_history():
     """Parses audit logs to extract completed sales transactions."""
-    logs = log_sheet.get_all_records()
-    if not logs:
+    try:
+        logs = load_logs()
+    except Exception:
         return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
+    
+    if not logs:
+        return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"]
     
     parsed_orders = []
     for log in logs:
@@ -183,14 +191,17 @@ tab_pos, tab_inventory, tab_history = st.tabs([
 if st.session_state["username"] == "admin":
     st.sidebar.markdown("---")
     with st.sidebar.expander("📜 View Audit Log", expanded=False):
-        logs = log_sheet.get_all_records()
-        if logs:
-            df_logs = pd.DataFrame(logs)
-            if not df_logs.empty and "Timestamp" in df_logs.columns:
-                df_logs = df_logs.sort_values(by="Timestamp", ascending=False)
-            st.dataframe(df_logs, use_container_width=True, hide_index=True)
-        else:
-            st.write("No logs available.")
+        try:
+            logs = load_logs()
+            if logs:
+                df_logs = pd.DataFrame(logs)
+                if not df_logs.empty and "Timestamp" in df_logs.columns:
+                    df_logs = df_logs.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(df_logs, use_container_width=True, hide_index=True)
+            else:
+                st.write("No logs available.")
+        except Exception as e:
+            st.warning("Logs temporarily unavailable (API Limit). Try again in a few seconds.")
 
 # ==========================================
 # 6. TAB 1: ORDERS / POS
