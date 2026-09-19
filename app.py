@@ -14,8 +14,13 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 @st.cache_resource
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
+    
+    # Auto-repair newline formatting issues
+    if "private_key" in credentials:
+        credentials["private_key"] = credentials["private_key"].replace("\\n", "\n")
+        
     gc = gspread.service_account_from_dict(credentials)
-    sh = gc.open("Inventory DB - TEST")
+    sh = gc.open("Inventory DB - TEST")  # Ensure your dev sheet title is correct
     
     try:
         inventory_sheet = sh.worksheet("Sheet1")
@@ -29,8 +34,6 @@ def get_gsheet():
         log_sheet.append_row(["Timestamp", "User", "Action", "Details"])
         
     return inventory_sheet, log_sheet
-
-sheet, log_sheet = get_gsheet()
 
 # ==========================================
 # 3. HELPER FUNCTIONS
