@@ -1,5 +1,6 @@
 import streamlit as st
 import gspread
+from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 from datetime import datetime
 import re
@@ -12,7 +13,7 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 # ==========================================
 # 2. GOOGLE SHEETS CONNECTION
 # ==========================================
-@st.cache_resource
+@st.cache_resource(ttl=30)
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     
@@ -53,6 +54,10 @@ def log_action(user: str, action: str, details: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_sheet.append_row([timestamp, user, action, details])
 
+@st.cache_data(ttl=30)
+def load_logs():
+    return log_sheet.get_all_records()
+
 def get_quantity_col_idx(headers):
     """Finds 1-based index for the quantity column in Google Sheets."""
     headers_clean = [str(h).strip().lower() for h in headers]
@@ -60,6 +65,7 @@ def get_quantity_col_idx(headers):
         return headers_clean.index("quantity") + 1
     return 4  # Default fallback index if header isn't standard
 
+@st.cache_data(ttl=30)
 def load_data():
     records = sheet.get_all_records()
     if not records:
@@ -76,7 +82,11 @@ def load_data():
 
 def get_transaction_history():
     """Parses audit logs to extract completed sales transactions."""
-    logs = log_sheet.get_all_records()
+    try:
+        logs = load_logs()
+    except Exception:
+        return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
+    
     if not logs:
         return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
     
@@ -146,14 +156,26 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# 5. NAVIGATION & HEADER
+# 5. AUTO-REFRESH & NAVIGATION & HEADER
 # ==========================================
+
+# Background refresh every 30 seconds for logged-in users
+st_autorefresh(interval=30000, key="inventory_datarefresh")
+
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Log Out"):
     current_user = st.session_state["username"]
     log_action(current_user, "LOGOUT", f"User '{current_user}' logged out.")
     st.session_state["authenticated"] = False
     st.session_state["username"] = ""
+    st.rerun()
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Sync / Refresh Data", use_container_width=True):
+    # Clear cached inventory data and resources
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.toast("Data refreshed from Google Sheets!", icon="🔄")
     st.rerun()
 
 st.title("📦 Ellie Store Inventory")
@@ -164,6 +186,22 @@ tab_pos, tab_inventory, tab_history = st.tabs([
     "📦 Inventory Management", 
     "📜 Transaction History"
 ])
+
+# --- SIDEBAR AUDIT LOG (ADMIN ONLY) ---
+if st.session_state["username"] == "admin":
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("📜 View Audit Log", expanded=False):
+        try:
+            logs = load_logs()
+            if logs:
+                df_logs = pd.DataFrame(logs)
+                if not df_logs.empty and "Timestamp" in df_logs.columns:
+                    df_logs = df_logs.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(df_logs, use_container_width=True, hide_index=True)
+            else:
+                st.write("No logs available.")
+        except Exception as e:
+            st.warning("Logs temporarily unavailable (API Limit). Try again in a few seconds.")
 
 # ==========================================
 # 6. TAB 1: ORDERS / POS
@@ -177,12 +215,22 @@ with tab_pos:
     if "clear_pos_flag" not in st.session_state:
         st.session_state["clear_pos_flag"] = False
 
+    if "reset_add_item_flag" not in st.session_state:
+        st.session_state["reset_add_item_flag"] = False
+
+    # --- RESET INPUTS AFTER ADD TO CART OR COMPLETE ORDER ---
+    if st.session_state["reset_add_item_flag"]:
+        st.session_state["pos_item_select"] = None
+        st.session_state["pos_qty_input"] = 0
+        st.session_state["reset_add_item_flag"] = False
+
     if st.session_state["clear_pos_flag"]:
         st.session_state["pos_order_name"] = ""
         st.session_state["pos_item_select"] = None
         st.session_state["pos_qty_input"] = 0
         st.session_state["clear_pos_flag"] = False
 
+    # --- DEFINE COLUMNS ---
     col_catalog, col_cart = st.columns([1, 1.3])
 
     with col_catalog:
@@ -226,6 +274,7 @@ with tab_pos:
                         st.error(f"Cannot add more. Max stock is {max_available}.")
                     else:
                         existing_cart_item["qty"] += order_qty
+                        st.session_state["reset_add_item_flag"] = True
                         st.rerun()
                 else:
                     st.session_state["cart"].append({
@@ -235,10 +284,17 @@ with tab_pos:
                         "price": float(item_data["price"]),
                         "max_stock": max_available
                     })
+                    st.session_state["reset_add_item_flag"] = True
                     st.rerun()
 
     with col_cart:
         st.markdown("##### Current Cart")
+        
+        # Define current_order_name safely from session state
+        current_order_name = st.session_state.get("pos_order_name", "").strip()
+        if current_order_name:
+            st.markdown(f"**Order Reference:** **{current_order_name.upper()}**")
+
         if st.session_state["cart"]:
             c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
             c_name.caption("**Name**")
@@ -257,7 +313,15 @@ with tab_pos:
                 row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
                 row_name.write(item["name"])
                 
-                new_qty = row_qty.number_input(label=f"qty_{idx}", min_value=0, max_value=int(item["max_stock"]), value=int(item["qty"]), step=1, label_visibility="collapsed", key=f"cart_qty_{idx}")
+                new_qty = row_qty.number_input(
+                    label=f"qty_{idx}", 
+                    min_value=0, 
+                    max_value=int(item["max_stock"]), 
+                    value=int(item["qty"]), 
+                    step=1, 
+                    label_visibility="collapsed", 
+                    key=f"cart_qty_{idx}"
+                )
 
                 if new_qty != item["qty"]:
                     if new_qty == 0:
@@ -301,15 +365,16 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
+                    order_ref_str = f"Order Name: {current_order_name.upper()} | " if current_order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
                     log_action(
                         st.session_state["username"], 
                         "ORDER COMPLETED", 
-                        f"{order_ref}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
+                        f"{order_ref_str}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
                     )
                     
+                    st.cache_data.clear()
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
                     st.session_state["clear_pos_flag"] = True
@@ -331,7 +396,7 @@ with tab_inventory:
 
     # --- ADD STOCK ---
     with col_add:
-        with st.expander("➕ Add Stock Item", expanded=True):
+        with st.expander("➕ Add Stock Item", expanded=False):
             if st.session_state["clear_add_flag"]:
                 st.session_state["add_name_input"] = ""
                 st.session_state["add_sku_input"] = ""
@@ -392,6 +457,7 @@ with tab_inventory:
                             log_action(st.session_state["username"], "ADD ITEM", f"Created new item: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}")
                             st.success(f"Added new product '{add_name}' to inventory!")
 
+                        st.cache_data.clear()  # Clear cache after stock addition
                         reset_add_inputs()
                         st.rerun()
                     except Exception as e:
@@ -432,6 +498,7 @@ with tab_inventory:
                                 
                                 reason_str = f" | Reason: {reason}" if reason else ""
                                 log_action(st.session_state["username"], "REMOVE STOCK", f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}")
+                                st.cache_data.clear()  # Clear cache after deduction
                                 st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
                                 st.rerun()
                         else:
@@ -448,12 +515,7 @@ with tab_inventory:
         st.info("No items found in your inventory sheet.")
 
     # --- AUDIT LOGS ---
-    if st.session_state["username"] == "admin":
-        st.divider()
-        with st.expander("📜 View Audit Log", expanded=True):
-            logs = log_sheet.get_all_records()
-            if logs:
-                st.dataframe(pd.DataFrame(logs).sort_values(by="Timestamp", ascending=False), use_container_width=True, hide_index=True)
+
 
 # ==========================================
 # 8. TAB 3: TRANSACTION HISTORY
