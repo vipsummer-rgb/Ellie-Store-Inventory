@@ -204,6 +204,15 @@ with tab_pos:
     if "clear_pos_flag" not in st.session_state:
         st.session_state["clear_pos_flag"] = False
 
+    if "reset_add_item_flag" not in st.session_state:
+        st.session_state["reset_add_item_flag"] = False
+
+    # --- RESET INPUTS AFTER ADD TO CART OR COMPLETE ORDER ---
+    if st.session_state["reset_add_item_flag"]:
+        st.session_state["pos_item_select"] = None
+        st.session_state["pos_qty_input"] = 0
+        st.session_state["reset_add_item_flag"] = False
+
     if st.session_state["clear_pos_flag"]:
         st.session_state["pos_order_name"] = ""
         st.session_state["pos_item_select"] = None
@@ -253,6 +262,7 @@ with tab_pos:
                         st.error(f"Cannot add more. Max stock is {max_available}.")
                     else:
                         existing_cart_item["qty"] += order_qty
+                        st.session_state["reset_add_item_flag"] = True
                         st.rerun()
                 else:
                     st.session_state["cart"].append({
@@ -262,6 +272,7 @@ with tab_pos:
                         "price": float(item_data["price"]),
                         "max_stock": max_available
                     })
+                    st.session_state["reset_add_item_flag"] = True
                     st.rerun()
 
     with col_cart:
@@ -337,7 +348,7 @@ with tab_pos:
                         f"{order_ref}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
                     )
                     
-                    st.cache_data.clear()  # Clear cache after completing order to fetch new stock
+                    st.cache_data.clear()
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
                     st.session_state["clear_pos_flag"] = True
