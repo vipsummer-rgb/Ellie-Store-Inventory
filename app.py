@@ -15,12 +15,11 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     
-    # Auto-fix literal '\\n' sequences in private_key if present
     if "private_key" in credentials:
         credentials["private_key"] = credentials["private_key"].replace("\\n", "\n")
         
     gc = gspread.service_account_from_dict(credentials)
-    sh = gc.open("Inventory DB - TEST")  # Update to your live sheet name when ready
+    sh = gc.open("Inventory DB - TEST")  # Update to live sheet name when ready
     
     try:
         inventory_sheet = sh.worksheet("Sheet1")
@@ -34,6 +33,9 @@ def get_gsheet():
         log_sheet.append_row(["Timestamp", "User", "Action", "Details"])
         
     return inventory_sheet, log_sheet
+
+# INITIALIZE SHEETS FIRST
+sheet, log_sheet = get_gsheet()
 
 
 # ==========================================
@@ -56,6 +58,10 @@ def load_data():
             df_loaded[col] = df_loaded[col].astype(str).str.strip().str.upper()
             
     return df_loaded
+
+# NOW IT IS SAFE TO CALL LOAD_DATA()
+df = load_data()
+
 
 def get_quantity_col_idx(headers):
     """Finds the 1-based column index for quantity regardless of casing."""
