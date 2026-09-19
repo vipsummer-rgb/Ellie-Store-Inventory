@@ -288,12 +288,12 @@ with tab_pos:
                     st.rerun()
 
     with col_cart:
-        st.markdown(f"**Order Reference:** **{current_order_name.upper()}**")
+        st.markdown("##### Current Cart")
         
-        # Display Order Reference Name
+        # Define current_order_name safely from session state
         current_order_name = st.session_state.get("pos_order_name", "").strip()
         if current_order_name:
-            st.markdown(f"**Order Reference:** `:blue[{current_order_name.upper()}]`")
+            st.markdown(f"**Order Reference:** **{current_order_name.upper()}**")
 
         if st.session_state["cart"]:
             c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
