@@ -359,7 +359,7 @@ with tab_inventory:
 
     # --- ADD STOCK ---
     with col_add:
-        with st.expander("➕ Add Stock Item", expanded=True):
+        with st.expander("➕ Add Stock Item", expanded=False):
             if st.session_state["clear_add_flag"]:
                 st.session_state["add_name_input"] = ""
                 st.session_state["add_sku_input"] = ""
