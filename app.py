@@ -14,32 +14,20 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 # ==========================================
 @st.cache_resource
 def get_gsheet():
-    # Make a fresh deep/dict copy so we don't mutate st.secrets directly
     credentials = dict(st.secrets["gcp_service_account"])
     
     if "private_key" in credentials:
         pk = credentials["private_key"]
-        
-        # 1. Clean literal escaped newlines
         pk = pk.replace("\\n", "\n").strip()
         
-        # 2. Reconstruct clean PEM headers and body
-        if "-----BEGIN PRIVATE KEY-----" in pk:
-            # Remove existing header/footer to clean up embedded whitespace
-            core_key = pk.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").strip()
-            # Remove any residual accidental spaces/newlines inside the key body
-            core_key = "".join(core_key.split())
+        # Ensure PEM headers are present
+        if "-----BEGIN PRIVATE KEY-----" not in pk:
+            pk = f"-----BEGIN PRIVATE KEY-----\n{pk}\n-----END PRIVATE KEY-----"
             
-            # Rebuild standardized PEM structure with lines wrapped properly
-            formatted_key = "-----BEGIN PRIVATE KEY-----\n"
-            for i in range(0, len(core_key), 64):
-                formatted_key += core_key[i:i+64] + "\n"
-            formatted_key += "-----END PRIVATE KEY-----\n"
-            
-            credentials["private_key"] = formatted_key
+        credentials["private_key"] = pk
 
     gc = gspread.service_account_from_dict(credentials)
-    sh = gc.open("Inventory DB - TEST")  # Double check exact sheet name match
+    sh = gc.open("Inventory DB - TEST")
     
     try:
         inventory_sheet = sh.worksheet("Sheet1")
