@@ -88,7 +88,7 @@ def get_transaction_history():
         return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
     
     if not logs:
-        return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"]
+        return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
     
     parsed_orders = []
     for log in logs:
