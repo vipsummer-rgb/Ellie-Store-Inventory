@@ -288,7 +288,7 @@ with tab_pos:
                     st.rerun()
 
     with col_cart:
-        st.markdown(f"**Order Reference:** :blue[{current_order_name.upper()}]")
+        st.markdown(f"**Order Reference:** **{current_order_name.upper()}**")
         
         # Display Order Reference Name
         current_order_name = st.session_state.get("pos_order_name", "").strip()
