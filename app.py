@@ -206,88 +206,14 @@ if st.session_state["username"] == "admin":
 # ==========================================
 # 6. TAB 1: ORDERS / POS
 # ==========================================
-with tab_pos:
-    st.subheader("🛒 New Customer Order")
-
-    if "cart" not in st.session_state:
-        st.session_state["cart"] = []
-
-    if "clear_pos_flag" not in st.session_state:
-        st.session_state["clear_pos_flag"] = False
-
-    if "reset_add_item_flag" not in st.session_state:
-        st.session_state["reset_add_item_flag"] = False
-
-    # --- RESET INPUTS AFTER ADD TO CART OR COMPLETE ORDER ---
-    if st.session_state["reset_add_item_flag"]:
-        st.session_state["pos_item_select"] = None
-        st.session_state["pos_qty_input"] = 0
-        st.session_state["reset_add_item_flag"] = False
-
-    if st.session_state["clear_pos_flag"]:
-        st.session_state["pos_order_name"] = ""
-        st.session_state["pos_item_select"] = None
-        st.session_state["pos_qty_input"] = 0
-        st.session_state["clear_pos_flag"] = False
-
-    col_catalog, col_cart = st.columns([1, 1.3])
-
-    with col_catalog:
-        st.markdown("##### Add Item to Cart")
-        order_name = st.text_input("Order Name (Optional)", placeholder="e.g., Customer Name", key="pos_order_name").strip()
-        
-        in_stock_df = df[df["quantity"] > 0] if not df.empty and "quantity" in df.columns else pd.DataFrame()
-        item_options = in_stock_df.apply(lambda r: f"{r['name']} | Stock: {r['quantity']}", axis=1).tolist() if not in_stock_df.empty else []
-
-        selected_item_str = st.selectbox(
-            "Product", 
-            options=item_options, 
-            index=None, 
-            placeholder="Select or type product..." if item_options else "No items in stock",
-            disabled=len(item_options) == 0,
-            key="pos_item_select"
-        )
-
-        max_available = 9999
-        item_data = None
-        if selected_item_str and not in_stock_df.empty:
-            selected_idx = item_options.index(selected_item_str)
-            item_data = in_stock_df.iloc[selected_idx]
-            max_available = int(item_data["quantity"])
-
-        order_qty = st.number_input(
-            "Qty", 
-            min_value=0, 
-            max_value=max_available if selected_item_str else 1, 
-            key="pos_qty_input"
-        )
-        
-        can_add = selected_item_str is not None and order_qty > 0
-
-        if st.button("➕ Add to Cart", use_container_width=True, type="secondary", disabled=not can_add):
-            if selected_item_str and item_data is not None and order_qty > 0:
-                existing_cart_item = next((item for item in st.session_state["cart"] if item["name"].strip().upper() == str(item_data["name"]).strip().upper()), None)
-                
-                if existing_cart_item:
-                    if existing_cart_item["qty"] + order_qty > max_available:
-                        st.error(f"Cannot add more. Max stock is {max_available}.")
-                    else:
-                        existing_cart_item["qty"] += order_qty
-                        st.session_state["reset_add_item_flag"] = True
-                        st.rerun()
-                else:
-                    st.session_state["cart"].append({
-                        "sku": str(item_data["sku"]).upper(),
-                        "name": str(item_data["name"]).upper(),
-                        "qty": order_qty,
-                        "price": float(item_data["price"]),
-                        "max_stock": max_available
-                    })
-                    st.session_state["reset_add_item_flag"] = True
-                    st.rerun()
-
-    with col_cart:
+with col_cart:
         st.markdown("##### Current Cart")
+        
+        # Display the current Order Name if entered
+        current_order_name = st.session_state.get("pos_order_name", "").strip()
+        if current_order_name:
+            st.markdown(f"**Order Reference:** `:blue[{current_order_name.upper()}]`")
+
         if st.session_state["cart"]:
             c_name, c_qty, c_price, c_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
             c_name.caption("**Name**")
@@ -306,7 +232,15 @@ with tab_pos:
                 row_name, row_qty, row_price, row_subtotal = st.columns([2.5, 1.8, 1.5, 1.5])
                 row_name.write(item["name"])
                 
-                new_qty = row_qty.number_input(label=f"qty_{idx}", min_value=0, max_value=int(item["max_stock"]), value=int(item["qty"]), step=1, label_visibility="collapsed", key=f"cart_qty_{idx}")
+                new_qty = row_qty.number_input(
+                    label=f"qty_{idx}", 
+                    min_value=0, 
+                    max_value=int(item["max_stock"]), 
+                    value=int(item["qty"]), 
+                    step=1, 
+                    label_visibility="collapsed", 
+                    key=f"cart_qty_{idx}"
+                )
 
                 if new_qty != item["qty"]:
                     if new_qty == 0:
@@ -350,13 +284,13 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
+                    order_ref_str = f"Order Name: {current_order_name.upper()} | " if current_order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
                     log_action(
                         st.session_state["username"], 
                         "ORDER COMPLETED", 
-                        f"{order_ref}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
+                        f"{order_ref_str}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
                     )
                     
                     st.cache_data.clear()
