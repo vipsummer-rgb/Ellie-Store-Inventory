@@ -15,12 +15,11 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     
-    # Auto-repair newline formatting issues
     if "private_key" in credentials:
         credentials["private_key"] = credentials["private_key"].replace("\\n", "\n")
         
     gc = gspread.service_account_from_dict(credentials)
-    sh = gc.open("Inventory DB - TEST")  # Ensure your dev sheet title is correct
+    sh = gc.open("Inventory DB - TEST")  # Set to your target sheet title
     
     try:
         inventory_sheet = sh.worksheet("Sheet1")
@@ -34,6 +33,10 @@ def get_gsheet():
         log_sheet.append_row(["Timestamp", "User", "Action", "Details"])
         
     return inventory_sheet, log_sheet
+
+# --- INITIALIZE SHEETS FIRST ---
+sheet, log_sheet = get_gsheet()
+
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -56,61 +59,7 @@ def load_data():
             
     return df_loaded
 
-def get_quantity_col_idx(headers):
-    """Finds the 1-based column index for quantity regardless of casing."""
-    for idx, header in enumerate(headers, start=1):
-        if str(header).strip().lower() in ["quantity", "qty", "stock"]:
-            return idx
-    return 4  # Default fallback column (D)
-
-def get_transaction_history():
-    """Parses 'ORDER COMPLETED' logs into a clean DataFrame."""
-    logs = log_sheet.get_all_records()
-    if not logs:
-        return pd.DataFrame()
-
-    df_logs = pd.DataFrame(logs)
-    orders = df_logs[df_logs["Action"] == "ORDER COMPLETED"].copy()
-
-    if orders.empty:
-        return pd.DataFrame()
-
-    parsed_orders = []
-    for _, row in orders.iterrows():
-        details = str(row["Details"])
-        
-        order_name = "N/A"
-        if "Order Name: " in details:
-            try:
-                order_name = details.split("Order Name: ")[1].split(" | ")[0].strip()
-            except Exception:
-                pass
-
-        items = "N/A"
-        if "Items: [" in details:
-            try:
-                items = details.split("Items: [")[1].split("] |")[0].strip()
-            except Exception:
-                pass
-
-        total = "0.00"
-        if "Total: ₱" in details:
-            try:
-                total = details.split("Total: ₱")[1].strip()
-            except Exception:
-                pass
-
-        parsed_orders.append({
-            "Timestamp": row["Timestamp"],
-            "User / Staff": row["User"],
-            "Order Name": order_name,
-            "Items": items,
-            "Total (₱)": total
-        })
-
-    df_transactions = pd.DataFrame(parsed_orders)
-    return df_transactions.sort_values(by="Timestamp", ascending=False)
-
+# --- CALL LOAD_DATA() AFTER INITIALIZATION ---
 df = load_data()
 
 # ==========================================
