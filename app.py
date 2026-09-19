@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 import pandas as pd
 from datetime import datetime
+import re
 
 # ==========================================
 # 1. PAGE & CONFIGURATION
@@ -16,7 +17,14 @@ def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     
     if "private_key" in credentials:
-        credentials["private_key"] = credentials["private_key"].replace("\\n", "\n")
+        pk = credentials["private_key"]
+        # Convert literal string '\n' into actual newlines
+        pk = pk.replace("\\n", "\n")
+        # Ensure correct RSA PEM formatting
+        if "\n" not in pk and "-----BEGIN PRIVATE KEY-----" in pk:
+            pk = pk.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+            pk = pk.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----")
+        credentials["private_key"] = pk
         
     gc = gspread.service_account_from_dict(credentials)
     sh = gc.open("Inventory DB - TEST")  # Double check sheet name match
@@ -45,6 +53,13 @@ def log_action(user: str, action: str, details: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_sheet.append_row([timestamp, user, action, details])
 
+def get_quantity_col_idx(headers):
+    """Finds 1-based index for the quantity column in Google Sheets."""
+    headers_clean = [str(h).strip().lower() for h in headers]
+    if "quantity" in headers_clean:
+        return headers_clean.index("quantity") + 1
+    return 4  # Default fallback index if header isn't standard
+
 def load_data():
     records = sheet.get_all_records()
     if not records:
@@ -58,6 +73,43 @@ def load_data():
             df_loaded[col] = df_loaded[col].astype(str).str.strip().str.upper()
             
     return df_loaded
+
+def get_transaction_history():
+    """Parses audit logs to extract completed sales transactions."""
+    logs = log_sheet.get_all_records()
+    if not logs:
+        return pd.DataFrame(columns=["Timestamp", "User / Staff", "Order Name", "Items", "Total (₱)"])
+    
+    parsed_orders = []
+    for log in logs:
+        action = str(log.get("Action", "")).strip().upper()
+        if action == "ORDER COMPLETED":
+            details = str(log.get("Details", ""))
+            
+            # Extract optional Order Name
+            order_name_match = re.search(r"Order Name:\s*([^|]+)", details)
+            order_name = order_name_match.group(1).strip() if order_name_match else "N/A"
+            
+            # Extract Items list
+            items_match = re.search(r"Items:\s*\[(.*?)\]", details)
+            items = items_match.group(1).strip() if items_match else "N/A"
+            
+            # Extract Total Amount
+            total_match = re.search(r"Total:\s*(₱?[\d,]+\.\d{2})", details)
+            total = total_match.group(1).strip() if total_match else "₱0.00"
+            
+            parsed_orders.append({
+                "Timestamp": log.get("Timestamp", ""),
+                "User / Staff": log.get("User", ""),
+                "Order Name": order_name,
+                "Items": items,
+                "Total (₱)": total
+            })
+            
+    df_tx = pd.DataFrame(parsed_orders)
+    if not df_tx.empty:
+        df_tx = df_tx.sort_values(by="Timestamp", ascending=False)
+    return df_tx
 
 # --- CALL LOAD_DATA() AFTER INITIALIZATION ---
 df = load_data()
@@ -249,7 +301,6 @@ with tab_pos:
                             row_number = row_idx + 2
                             sheet.update_cell(row_number, qty_col_idx, new_qty)
                     
-                    # Read order name directly from variable captured before rerun
                     order_ref = f"Order Name: {order_name.upper()} | " if order_name else ""
                     order_summary = ", ".join([f"{i['name']} (x{i['qty']})" for i in st.session_state["cart"]])
                     
@@ -336,7 +387,6 @@ with tab_inventory:
                             log_action(st.session_state["username"], "ADD STOCK", f"Added {add_quantity} to '{add_name}' [SKU: {sku_val}] (New Total: {new_qty})")
                             st.success(f"Successfully updated '{add_name}'! New total: {new_qty}")
                         else:
-                            # Append clean 1D list row
                             new_id = len(fresh_df) + 1
                             sheet.append_row([new_id, sku_val, add_name, add_quantity, add_price])
                             log_action(st.session_state["username"], "ADD ITEM", f"Created new item: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}")
@@ -360,7 +410,6 @@ with tab_inventory:
 
                 if st.button("Deduct Stock", key="btn_deduct_stock"):
                     if selected_item_str:
-                        # Extract exact product name before the hyphen marker
                         raw_selected_name = selected_item_str.split(" - ")[0].strip().upper()
                         
                         fresh_df = load_data()
@@ -415,12 +464,10 @@ with tab_history:
     df_tx = get_transaction_history()
     
     if not df_tx.empty:
-        # Single KPI Card for Order Count
         st.metric("Total Completed Orders", len(df_tx))
         
         st.divider()
 
-        # Search / Filter Bar
         search_query = st.text_input("🔍 Search Transactions", placeholder="Filter by customer name, staff, or date...").strip().upper()
         
         if search_query:
@@ -431,7 +478,6 @@ with tab_history:
                 df_tx["Timestamp"].astype(str).str.contains(search_query, case=False)
             ]
 
-        # Render Transaction Table
         st.dataframe(
             df_tx, 
             use_container_width=True, 
