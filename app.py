@@ -1,5 +1,6 @@
 import streamlit as st
 import gspread
+from streamlit_autorefresh import st_autorefresh
 import pandas as pd
 from datetime import datetime
 import re
@@ -12,7 +13,7 @@ st.set_page_config(page_title="Ellie Store Inventory", page_icon="📦", layout=
 # ==========================================
 # 2. GOOGLE SHEETS CONNECTION
 # ==========================================
-@st.cache_resource
+@st.cache_resource(ttl=30)
 def get_gsheet():
     credentials = dict(st.secrets["gcp_service_account"])
     
@@ -60,6 +61,7 @@ def get_quantity_col_idx(headers):
         return headers_clean.index("quantity") + 1
     return 4  # Default fallback index if header isn't standard
 
+@st.cache_data(ttl=30)
 def load_data():
     records = sheet.get_all_records()
     if not records:
@@ -146,14 +148,26 @@ if not st.session_state["authenticated"]:
     st.stop()
 
 # ==========================================
-# 5. NAVIGATION & HEADER
+# 5. AUTO-REFRESH & NAVIGATION & HEADER
 # ==========================================
+
+# Background refresh every 30 seconds for logged-in users
+st_autorefresh(interval=30000, key="inventory_datarefresh")
+
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Log Out"):
     current_user = st.session_state["username"]
     log_action(current_user, "LOGOUT", f"User '{current_user}' logged out.")
     st.session_state["authenticated"] = False
     st.session_state["username"] = ""
+    st.rerun()
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🔄 Sync / Refresh Data", use_container_width=True):
+    # Clear cached inventory data and resources
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.toast("Data refreshed from Google Sheets!", icon="🔄")
     st.rerun()
 
 st.title("📦 Ellie Store Inventory")
@@ -310,6 +324,7 @@ with tab_pos:
                         f"{order_ref}Items: [{order_summary}] | Total: ₱{grand_total:,.2f}"
                     )
                     
+                    st.cache_data.clear()  # Clear cache after completing order to fetch new stock
                     st.success(f"Order completed! Total: ₱{grand_total:,.2f}")
                     st.session_state["cart"] = []
                     st.session_state["clear_pos_flag"] = True
@@ -392,6 +407,7 @@ with tab_inventory:
                             log_action(st.session_state["username"], "ADD ITEM", f"Created new item: {add_name}, Qty: {add_quantity}, Price: ₱{add_price}")
                             st.success(f"Added new product '{add_name}' to inventory!")
 
+                        st.cache_data.clear()  # Clear cache after stock addition
                         reset_add_inputs()
                         st.rerun()
                     except Exception as e:
@@ -432,6 +448,7 @@ with tab_inventory:
                                 
                                 reason_str = f" | Reason: {reason}" if reason else ""
                                 log_action(st.session_state["username"], "REMOVE STOCK", f"Deducted {deduct_qty} from '{item_name}' (Remaining: {new_qty}){reason_str}")
+                                st.cache_data.clear()  # Clear cache after deduction
                                 st.success(f"Deducted {deduct_qty} from '{item_name}'. New total: {new_qty}")
                                 st.rerun()
                         else:
